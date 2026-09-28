@@ -8,7 +8,11 @@ Last Updated: 2026-09-28
 
 ## Remote
 
-Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. First commit (root commit, covers Phases 1 + 2.1 + 2.2) pushed and confirmed. Sub-phase 2.3 (this checkpoint) is NOT YET COMMITTED as of this writing — will be committed and pushed immediately after this PROJECT-STATE.md update, see NEXT ACTION for confirmation the push actually succeeded (do not assume it did without checking `git log`/`git status` in a future session).
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Two commits pushed and confirmed:
+- `84a7bd8` — root commit, covers Phases 1 + 2.1 (Authentication) + 2.2 (Projects CRUD)
+- `3c7cb50` — Phase 2.3 (Project Membership, transactions, activity logging)
+
+Confirmed via `git log --oneline -5` and `git push` output (`84a7bd8..3c7cb50  main -> main`) — working tree is clean (`git status --short` empty) as of this checkpoint. A future session should still re-verify with `git log`/`git status` before trusting this note, rather than assuming it stayed accurate if significant time has passed.
 
 ## Project Location
 
