@@ -59,8 +59,40 @@
         </form>
     @endcan
 
-    <h2 style="margin-top:1.5rem;font-size:1.05rem;">Comments</h2>
-    <p style="color:#6b7280;font-size:0.9rem;">Comments will appear here once the Comments phase is implemented.</p>
+    <h2 style="margin-top:1.5rem;font-size:1.05rem;">Comments ({{ $task->comments->count() }})</h2>
+    @forelse ($task->comments as $comment)
+        <div style="border-bottom:1px solid #e5e7eb;padding:0.5rem 0;">
+            <p style="font-size:0.9rem;margin:0;">
+                <strong>{{ $comment->user?->name ?? 'Deleted user' }}</strong>
+                <span style="color:#9ca3af;">— {{ $comment->created_at->diffForHumans() }}</span>
+            </p>
+            <p style="margin:0.25rem 0;">{{ $comment->body }}</p>
+            @can('update', $comment)
+                <a href="{{ route('comments.edit', $comment) }}" style="font-size:0.85rem;">Edit</a>
+            @endcan
+            @can('delete', $comment)
+                &middot;
+                <form method="POST" action="{{ route('comments.destroy', $comment) }}" style="display:inline" onsubmit="return confirm('Delete this comment?');">
+                    @csrf
+                    @method('DELETE')
+                    <button type="submit" style="background:none;border:none;color:#b91c1c;cursor:pointer;padding:0;font-size:0.85rem;">Delete</button>
+                </form>
+            @endcan
+        </div>
+    @empty
+        <p style="color:#6b7280;font-size:0.9rem;">No comments yet.</p>
+    @endforelse
+
+    @can('create', [\App\Models\Comment::class, $task])
+        <form method="POST" action="{{ route('comments.store', $task) }}" class="stack" style="margin-top:1rem;">
+            @csrf
+            <div>
+                <label for="body">Add a comment</label>
+                <input id="body" name="body" type="text" required>
+            </div>
+            <button type="submit">Post Comment</button>
+        </form>
+    @endcan
 
     <h2 style="margin-top:1.5rem;font-size:1.05rem;">Activity</h2>
     @forelse ($task->activities as $activity)

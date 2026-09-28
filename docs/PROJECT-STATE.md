@@ -2,19 +2,18 @@
 
 ## Current Phase
 
-Phase: 2 — Implement the learning project (sub-phase 2.4: Tasks)
-Status: Sub-phases 2.1 (Authentication), 2.2 (Projects CRUD), 2.3 (Project Membership), 2.4 (Tasks + filtering/sorting) COMPLETE and VERIFIED. Dashboard real aggregation, Comments, remaining hardening/docs NOT started.
+Phase: 2 — Implement the learning project (sub-phase 2.5: Comments)
+Status: Sub-phases 2.1 (Authentication), 2.2 (Projects CRUD), 2.3 (Project Membership), 2.4 (Tasks), 2.5 (Comments) COMPLETE and VERIFIED. All spec CRUD entities now exist. Dashboard real aggregation, hardening (error pages), remaining ADRs/docs, seeders at volume, failure experiments, final report/assessment NOT started.
 Last Updated: 2026-09-28
 
 ## Remote
 
-Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Four commits pushed and confirmed (`git push` output showed `2d6eb19..940446b  main -> main`):
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Five commits pushed as of the last confirmed push (`0f08e98`); Phase 2.5 (Comments, this checkpoint) is NOT YET COMMITTED as of this writing — see NEXT ACTION, and do not trust this line without re-checking `git log`/`git status`:
 - `84a7bd8` — root commit, covers Phases 1 + 2.1 (Authentication) + 2.2 (Projects CRUD)
 - `3c7cb50` — Phase 2.3 (Project Membership, transactions, activity logging)
 - `2d6eb19` — PROJECT-STATE.md correction after confirming the 2.3 push
 - `940446b` — Phase 2.4 (Tasks, filtering/sorting, eloquent.md)
-
-Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
+- `0f08e98` — PROJECT-STATE.md correction after confirming the 2.4 push
 
 ## Project Location
 
@@ -40,7 +39,7 @@ Full detail and compatibility reasoning: `docs/architecture/version-matrix.md`.
 - [x] Phase 3 — Projects CRUD (sub-phase 2.2, complete)
 - [x] Phase 4 — Project membership and authorization (sub-phase 2.3, complete — roles: owner/manager/member/viewer, real membership-based ProjectPolicy, transaction-wrapped project creation, activity logging for project/member events)
 - [x] Phase 5 — Tasks (sub-phase 2.4, complete — CRUD, TaskPolicy with assignee-can-update-own-task rule, filtering/sorting, activity logging correctly scoped to the Task subject)
-- [~] Phase 6 — Comments and activity logging (activity logging infrastructure now fully proven across Project/Member/Task events; Comments themselves NOT started — this is the one remaining piece of Phase 6)
+- [x] Phase 6 — Comments and activity logging (sub-phase 2.5, complete — CommentPolicy deliberately author-only for edit/delete, no Owner/Manager override, verified even against a project Manager over real HTTP; "Comment created"/"Comment deleted" activity logged, matching spec's exact event list, no "Comment edited" logging since spec doesn't list it)
 - [ ] Phase 7 — Validation, errors, transactions and backend hardening
 - [x] Phase 8 — Pagination, filtering and sorting (Projects: pagination since 2.2; Tasks: pagination + status/priority/assignee filtering + due_date/priority/created_at sorting, since 2.4 — matches the spec's exact `?status=&priority=&assignee=` example)
 - [ ] Phase 9 — Tests
@@ -286,6 +285,46 @@ Files changed:
 - Added: `tests/Feature/TaskTest.php`
 - Added: `docs/backend-concepts/eloquent.md`
 
+### Phase 2.5 — Comments
+Status: Complete, verified (automated tests + manual HTTP verification proving CommentPolicy's author-only rule holds even against a project Manager)
+
+Completed:
+1. **`comments` migration**: `task_id` (`cascadeOnDelete()`, same reasoning as `tasks.project_id`), `user_id` (nullable, `nullOnDelete()` — matches `activity_logs.user_id`'s reasoning: discussion content should survive the author's account being deleted), `body` (text). Only one index (`task_id`) — deliberately NOT adding speculative indexes, per the project's "every non-obvious index must have a reason" rule; no other query pattern exists for comments in this app.
+2. **`Comment` model**: `task()`, `user()` (nullable — documented that Blade must null-check it). `Task::comments()` added as `oldest()`-ordered (chronological conversation), explicitly contrasted in a code comment against `activities()`'s `latest()`-ordering (reverse-chronological log) — these are different reading patterns for different kinds of content, not an oversight.
+3. **`CommentPolicy` — the one deliberately DIFFERENT authorization pattern in this app**: `create` follows the same Owner/Manager/Member-not-Viewer rule as `TaskPolicy::create`, but `update`/`delete` are **author-only, with NO Owner/Manager override** — matching the spec's literal wording ("edit their own comment," "delete their own comment"). This is a genuine, deliberate divergence from `TaskPolicy` (where Owner/Manager can act on any task regardless of who created it) and from `ProjectPolicy` (same pattern) — documented explicitly in the policy file's comments as "comment ownership follows the individual, not the project hierarchy," not left as an unexplained inconsistency.
+4. **`StoreCommentRequest`/`UpdateCommentRequest`**: simple `body` validation (required, max 2000 chars) — no cross-table closure rules needed here, unlike `StoreTaskRequest`'s assignee check, since a comment's only "who" question (the author) is always the authenticated user, not a value submitted in the request.
+5. **`CommentController`**: `store`/`edit`/`update`/`destroy` only — no `index`/`show`/`create` routes, since comments have no standalone page in this app; they render inline on the task show page. This was decided and recorded back in the Phase 2.4 NEXT ACTION notes before this phase started, and implemented exactly as planned.
+6. **Activity logging matches the spec's exact event list**: "Comment created" and "Comment deleted" are logged (against the Task subject, joining the task's unified activity feed alongside its own lifecycle events); **"Comment edited" is deliberately NOT logged**, since the spec's explicit activity event list only names created/deleted for comments — not adding unrequested logging.
+7. **`tasks/show.blade.php` updated**: placeholder text replaced with the real comment list (author name, timestamp via `diffForHumans()`, body), each comment's Edit/Delete actions gated behind `@can('update'/'delete', $comment)` (UI convenience only — the real enforcement is the Policy, per ADR 006's dual-check pattern, and this phase's manual verification specifically proved the backend check holds even when the UI check would have been bypassed). Add-comment form gated behind `@can('create', [Comment::class, $task])`.
+8. **`TaskController::show()` updated** to eager-load `comments.user` (same N+1-avoidance pattern as every other list-of-related-models render in this app).
+9. **Tests**: `tests/Feature/CommentTest.php`, 9 tests — member can add a comment (verifies both the comment row and its Task-subject activity log entry); Viewer blocked (403); non-member blocked (403); empty body rejected; **author can edit their own comment**; **a project Manager — who has full authority over the task itself — CANNOT edit another user's comment** (403, the concrete test proving the CommentPolicy/TaskPolicy divergence actually holds, not just documented); author can delete their own comment (verifies the "Comment deleted" activity log entry); **project owner cannot delete another user's comment** (403); comments render on the task show page.
+10. **Extensive manual HTTP verification, specifically targeting the CommentPolicy divergence**: registered two users, created a project, made the second user a project **Manager** (full task authority) via the real HTTP members endpoint, had the first user post a comment, then confirmed via real HTTP requests that the Manager gets **403 on both `GET /comments/{id}/edit` and `DELETE /comments/{id}`** despite their elevated project role — then confirmed the actual comment author successfully edits it (200 on edit page, 302 + DB-verified body change on submit). This was the one authorization rule in the entire app most likely to have a subtle bug (an "Owner/Manager can override" check accidentally copied from `TaskPolicy` would have silently broken this), so it received the most targeted manual verification of any phase so far. Cleaned up afterward: stopped dev server, deleted all manually-created data, confirmed 0 rows across users/projects/tasks/comments/activity_logs.
+
+Remaining for full Phase 2: Dashboard real aggregation queries (still a stub — all underlying data now exists: Projects/Tasks/Completed/Pending/Overdue counts are fully real, meaningful queries at this point, this is genuinely the next natural piece), backend hardening (custom 404/403/500 error pages per spec — none exist yet, Laravel's default error pages are still in use), remaining ADRs (001–004, 007), remaining backend-concepts docs (database-indexes.md, transactions.md-as-standalone-concept, pagination.md, error-handling.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md), seeders at spec's required volume (all four factories now exist — User, Project, Task, Comment — but no seeder invokes any of them at the spec's required volume of 10+ users/5+ projects/50+ tasks/100+ comments yet), failure experiments, final learning report, final assessment.
+
+Verification:
+- `php artisan migrate --pretend` then `--force` (comments table) → correct SQL, applied cleanly (VERIFIED)
+- `php artisan test --filter=CommentTest` → 9 passed, 22 assertions (VERIFIED)
+- `php artisan test` (full suite) → 55 passed, 133 assertions (VERIFIED)
+- `./vendor/bin/pint --test` → passed, no violations on first run (VERIFIED)
+- Manual curl-based verification: full chain (register → project → task → comment) → DB-verified comment row AND its Task-subject activity log entry → comment renders on task page with correct author name → **Manager blocked (403) from both editing and deleting another user's comment, despite having full task-level authority** → **actual author successfully edits their own comment (200/302, DB-confirmed body change)** (ALL VERIFIED)
+- Dev database cleanup confirmed: 0 rows across users/projects/tasks/comments/activity_logs after manual verification (VERIFIED)
+
+Files changed:
+- Added: `database/migrations/2026_09_28_131637_create_comments_table.php`
+- Added: `app/Models/Comment.php`
+- Modified: `app/Models/Task.php` (added `comments()`)
+- Modified: `app/Models/User.php` (added `comments()`)
+- Added: `app/Policies/CommentPolicy.php`
+- Added: `app/Http/Requests/StoreCommentRequest.php`, `UpdateCommentRequest.php`
+- Added: `app/Http/Controllers/CommentController.php`
+- Modified: `app/Http/Controllers/TaskController.php` (`show()` eager-loads `comments.user`)
+- Modified: `routes/web.php` (added comment routes)
+- Added: `resources/views/comments/edit.blade.php`
+- Modified: `resources/views/tasks/show.blade.php` (real comment list + add-comment form, replacing placeholder)
+- Added: `database/factories/CommentFactory.php`
+- Added: `tests/Feature/CommentTest.php`
+
 ## Important Decisions
 
 1. **Laravel 13 over an older LTS** — chosen because it's the latest stable major and PHP 8.5.11 (the verified machine PHP) is only supported starting Laravel 13 (Laravel 12 tops out at PHP 8.5 too, actually — 12 supports 8.2–8.5 and 13 supports 8.3–8.5 — both would technically work). Went with 13 per the spec's explicit target ("targeting Laravel 13 if it is still the latest stable compatible release"), and it was still latest stable and compatible. No ADR needed yet for this — will be captured implicitly in the general architecture docs during Phase 2, or given its own ADR if a future session judges it warrants one.
@@ -306,6 +345,9 @@ Files changed:
 16. **Task lifecycle activity logged against the Task subject; task deletion logged against the Project subject** — a deliberate split, not an inconsistency: a deleted task can no longer be viewed, so its "deletion" event is the one task-related activity that belongs on the still-viewable project instead. Caught and fixed a bug where this was initially reversed (see Phase 2.4 item 8).
 17. **`TaskPolicy::update()` extends update rights to the task's own assignee, not just Owner/Manager** — a deliberate divergence from `ProjectPolicy`'s "only management roles" pattern, because the spec's "Change Status" action needs to work for whoever the task is actually assigned to.
 18. **Sort column whitelisted via `match` in `TaskController::index()`, never string-interpolated into `ORDER BY`** — a concrete SQL-injection-prevention decision, not just a style choice; documented inline in the controller.
+19. **`CommentPolicy` is author-only for update/delete, with NO Owner/Manager override** — the one policy in this app that deliberately does NOT follow the "management roles can act on anything in the project" pattern used everywhere else. Matches the spec's literal wording, verified over real HTTP against a project Manager specifically because this was the rule most likely to have a copy-paste bug from `TaskPolicy`.
+20. **`Comment::user()` is nullable**, matching `comments.user_id`'s `nullOnDelete()` — discussion content survives the author's account being deleted; Blade renders `$comment->user?->name ?? 'Deleted user'`.
+21. **`Task::comments()` orders oldest-first; `Task::activities()` orders newest-first** — different content types, different natural reading order (conversation vs. reverse-chronological log), documented explicitly as intentional in the model's code comments.
 
 ## Known Issues
 
@@ -411,22 +453,32 @@ Manual curl verification (single user session):
   PUT /tasks/1 status change (todo → in_progress)   → 302; psql confirms status changed AND activity log message text: 'Task Tester changed task "..." status from "To Do" to "In Progress".' — matches spec's example format
   GET /tasks?status=in_progress   → task appears; GET /tasks?status=completed   → task correctly absent, "No tasks match these filters" shown
   cleanup: killed dev server, DELETE FROM activity_logs/tasks/project_user/projects/users   → confirmed 0/0/0/0 rows remain in dev database
+
+--- Phase 2.5 (Comments) ---
+php artisan migrate --pretend / --force (comments table)   → correct SQL, applied cleanly
+php artisan test --filter=CommentTest   → 9 passed, 22 assertions
+php artisan test (full suite)   → 55 passed, 133 assertions
+./vendor/bin/pint --test   → passed, no violations on first run
+Manual curl verification (two real user sessions — author + a project Manager):
+  register both users + create project + make second user a Manager (real HTTP /projects/{id}/members flow)   → all succeeded
+  create task + post comment as author   → 302; psql confirms comment row AND activity_logs row (subject_type='App\Models\Task', "commented on task")
+  GET /tasks/{id}   → 200; comment body AND author name both render
+  Manager GET /comments/{id}/edit   → 403 (blocked despite full task-level authority)
+  Manager DELETE /comments/{id}   → 403 (same)
+  Author GET /comments/{id}/edit   → 200; Author PUT /comments/{id}   → 302; psql confirms body actually changed
+  cleanup: killed dev server, DELETE FROM comments/activity_logs/tasks/project_user/projects/users   → confirmed 0/0/0/0/0 rows remain in dev database
 ```
 
 ## Current Blocker
 
-None. Phase 2.4 (Tasks) is complete and verified, pending only the commit/push described in NEXT ACTION step 1.
+None. Phase 2.5 (Comments) is complete and verified, pending only the commit/push described in NEXT ACTION step 1. All four spec CRUD entities (Projects, Membership, Tasks, Comments) now exist and are fully tested/verified.
 
 ## NEXT ACTION
 
-1. **Immediate**: commit this Phase 2.4 work (Tasks CRUD, filtering/sorting, eloquent.md — everything listed under "Files changed" in the Phase 2.4 section above) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing, confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed.
-2. Recommended next sub-phase: **Comments** (spec section 6) — the one remaining CRUD entity:
-   - Migration: `comments` table (id, task_id FK cascadeOnDelete, user_id FK, body/content, timestamps). No obvious extra indexes beyond `task_id` (every comment query is scoped to a task) — don't add speculative indexes per the project's "every non-obvious index must have a reason" rule.
-   - `Comment` model: `task()` belongsTo, `user()` belongsTo. Add `Task::comments()` hasMany, `User::comments()` hasMany.
-   - `CommentPolicy`: spec is explicit — "Users can edit their own comments" / "delete their own comment." Any project member can view/create comments on a task they can already view; only the comment's own author can edit/delete it (NOT extended to Owner/Manager, unlike Tasks — this is a deliberate, different rule worth its own documented reasoning, matching the pattern of explaining WHY each policy differs rather than copy-pasting).
-   - `StoreCommentRequest` (body required), no separate update request needed if editing reuses the same validation.
-   - `CommentController`: likely just `store`/`update`/`destroy` — no dedicated `index`/`show`/`create`/`edit` screens per the spec (comments render inline on the task show page, not as their own routes/pages).
-   - Activity logging: "Comment created" / "Comment deleted" per the spec's explicit list — log against the Task subject (matching where Task lifecycle events already log, so a task's activity feed shows one unified history of everything that happened to it, comments included).
-   - Update `resources/views/tasks/show.blade.php`'s "Comments will appear here..." placeholder with the real comment list + add-comment form.
-3. After Comments: Dashboard real aggregation queries (Projects/Tasks/Completed/Pending/Overdue counts — genuinely meaningful now, all the underlying data exists), then remaining hardening (custom 404/403/500 error pages, per spec), then the remaining ADRs/docs, seeders at volume, failure experiments, final learning report, final assessment.
-4. Still pending, no change in scope since last checkpoint beyond what Phase 2.4 added: ADRs 001–004, 007 (005/006/008/009/010 now exist), remaining `docs/backend-concepts/*.md` files (database-indexes.md, transactions.md-as-standalone-concept, pagination.md, error-handling.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md), all Comments code, seeders at spec's required volume (User/Project/Task factories all exist now; no CommentFactory yet since Comments isn't built; no seeder invokes any factory at the spec's required volume yet — this is still fully outstanding), failure experiments, final learning report, final assessment.
+1. **Immediate**: commit this Phase 2.5 work (Comments — everything listed under "Files changed" in the Phase 2.5 section above) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing, confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed.
+2. Recommended next sub-phase: **Dashboard real aggregation queries** (spec section 2) — now genuinely meaningful, all underlying data exists:
+   - Replace `DashboardController`'s stub with real counts: total projects (via `Auth::user()->projects()->count()`), total tasks across those projects, completed tasks, pending tasks (not completed/cancelled), overdue tasks (use the already-written `Task::isOverdue()` helper from Phase 2.4 — it exists specifically for this).
+   - Watch for N+1 here deliberately — this is the dashboard, loaded on every login, exactly the kind of page where an accidental N+1 would be most costly. Use aggregate queries (`count()`, `where()`) rather than loading full collections just to count them.
+   - Update `resources/views/dashboard/index.blade.php` to display the counts per the spec's exact list: Projects / Tasks / Completed Tasks / Pending Tasks / Overdue Tasks / current authenticated user.
+3. After the Dashboard: backend hardening — custom `resources/views/errors/404.blade.php`/`403.blade.php`/`500.blade.php` (Laravel's default error pages are still in use; spec explicitly asks for custom ones and to not expose stack traces in production-mode responses — verify `APP_DEBUG` behavior specifically). Then remaining ADRs (001–004 — these were deferred as "implicit" early on; worth deciding whether to write them now or explicitly skip with reasoning), remaining backend-concepts docs (database-indexes.md, transactions.md-as-standalone-concept, pagination.md, error-handling.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md), seeders at the spec's required volume (all four factories exist now — User/Project/Task/Comment — write a `DatabaseSeeder` that actually invokes them at 10+ users/5+ projects/50+ tasks/100+ comments, plus the spec's named demo accounts: admin@example.test / manager@example.test / member@example.test / viewer@example.test), failure experiments (the spec's 5 numbered experiments — deliberately breaking auth/validation/transactions/N+1/constraints and documenting what happens), final learning report, final backend assessment.
+4. Still pending, no change in scope since last checkpoint beyond what Phase 2.5 added: ADRs 001–004, 007, remaining backend-concepts docs (listed above), seeders/demo accounts, failure experiments, final learning report, final assessment. This is now genuinely "everything left" — all core CRUD functionality from the spec is built and tested; what remains is the Dashboard, hardening, documentation completion, and the teaching/assessment deliverables.

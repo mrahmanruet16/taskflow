@@ -111,7 +111,7 @@ class TaskController extends Controller
     {
         Gate::authorize('view', $task);
 
-        $task->load(['project.members', 'assignee', 'creator', 'activities.user']);
+        $task->load(['project.members', 'assignee', 'creator', 'activities.user', 'comments.user']);
 
         return view('tasks.show', ['task' => $task]);
     }

@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\MorphMany;
 
 #[Fillable(['project_id', 'assigned_to', 'created_by', 'title', 'description', 'status', 'priority', 'due_date'])]
@@ -52,6 +53,16 @@ class Task extends Model
     public function activities(): MorphMany
     {
         return $this->morphMany(ActivityLog::class, 'subject')->latest();
+    }
+
+    /**
+     * Oldest-first — unlike activities() (newest-first), a comment thread
+     * reads as a chronological conversation, not a reverse-chronological
+     * log.
+     */
+    public function comments(): HasMany
+    {
+        return $this->hasMany(Comment::class)->oldest();
     }
 
     /**
