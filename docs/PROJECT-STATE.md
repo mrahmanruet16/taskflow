@@ -2,13 +2,13 @@
 
 ## Current Phase
 
-Phase: 2 — Implement the learning project (sub-phase 2.6: Dashboard aggregation)
-Status: Sub-phases 2.1–2.6 (Authentication, Projects, Membership, Tasks, Comments, Dashboard) COMPLETE and VERIFIED. All spec CRUD entities and the Dashboard now exist with real data. Hardening (error pages), remaining ADRs/docs, seeders at volume, failure experiments, final report/assessment NOT started.
+Phase: 2 — Implement the learning project (sub-phase 2.7: Error-page hardening)
+Status: Sub-phases 2.1–2.7 (Authentication, Projects, Membership, Tasks, Comments, Dashboard, Error hardening) COMPLETE and VERIFIED. Remaining ADRs/docs, seeders at volume, failure experiments, final report/assessment NOT started.
 Last Updated: 2026-09-28
 
 ## Remote
 
-Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Eight commits pushed and confirmed (`git push` output showed `2868c3d..7de4bd0  main -> main`):
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Nine commits pushed as of the last confirmed push (`0c20e87`); Phase 2.7 (error hardening, this checkpoint) is NOT YET COMMITTED as of this writing — see NEXT ACTION, and do not trust this line without re-checking `git log`/`git status`:
 - `84a7bd8` — root commit, covers Phases 1 + 2.1 (Authentication) + 2.2 (Projects CRUD)
 - `3c7cb50` — Phase 2.3 (Project Membership, transactions, activity logging)
 - `2d6eb19` — PROJECT-STATE.md correction after confirming the 2.3 push
@@ -17,8 +17,7 @@ Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Eight comm
 - `43f984e` — Phase 2.5 (Comments)
 - `2868c3d` — PROJECT-STATE.md correction after confirming the 2.5 push
 - `7de4bd0` — Phase 2.6 (Dashboard real aggregation)
-
-Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
+- `0c20e87` — PROJECT-STATE.md correction after confirming the 2.6 push
 - `2868c3d` — PROJECT-STATE.md correction after confirming the 2.5 push
 
 ## Project Location
@@ -46,7 +45,7 @@ Full detail and compatibility reasoning: `docs/architecture/version-matrix.md`.
 - [x] Phase 4 — Project membership and authorization (sub-phase 2.3, complete — roles: owner/manager/member/viewer, real membership-based ProjectPolicy, transaction-wrapped project creation, activity logging for project/member events)
 - [x] Phase 5 — Tasks (sub-phase 2.4, complete — CRUD, TaskPolicy with assignee-can-update-own-task rule, filtering/sorting, activity logging correctly scoped to the Task subject)
 - [x] Phase 6 — Comments and activity logging (sub-phase 2.5, complete — CommentPolicy deliberately author-only for edit/delete, no Owner/Manager override, verified even against a project Manager over real HTTP; "Comment created"/"Comment deleted" activity logged, matching spec's exact event list, no "Comment edited" logging since spec doesn't list it)
-- [ ] Phase 7 — Validation, errors, transactions and backend hardening
+- [~] Phase 7 — Validation, errors, transactions and backend hardening (validation: done since Phase 2.2/2.4; transactions: done since Phase 2.3, ADR 008; custom 404/403/500 error pages + empirically-verified `APP_DEBUG=false` behavior: done, sub-phase 2.7. Remaining: no other hardening gaps identified yet — revisit if failure experiments surface one)
 - [x] Phase 8 — Pagination, filtering and sorting (Projects: pagination since 2.2; Tasks: pagination + status/priority/assignee filtering + due_date/priority/created_at sorting, since 2.4 — matches the spec's exact `?status=&priority=&assignee=` example)
 - [x] Dashboard (spec section 2, not separately numbered in this template) — sub-phase 2.6, complete: real aggregate COUNT() queries (Projects/Tasks/Completed/Pending/Overdue), verified as 5 flat queries regardless of task volume (measured via tinker, same rigor as the eloquent.md N+1 demonstration), verified correct over real HTTP including the completed-but-overdue-due-date edge case (must NOT count as overdue)
 - [ ] Phase 9 — Tests
@@ -359,6 +358,32 @@ Files changed:
 - Modified: `resources/views/dashboard/index.blade.php` (5 stat cards, replacing placeholder text)
 - Added: `tests/Feature/DashboardTest.php`
 
+### Phase 2.7 — Error-page hardening
+Status: Complete, verified (automated tests + manual HTTP verification against a real running server in both `APP_DEBUG` states)
+
+Completed:
+1. **Custom `resources/views/errors/404.blade.php`, `403.blade.php`, `500.blade.php`** — Laravel auto-discovers these by HTTP status code, no registration needed.
+2. **The 500 view deliberately does NOT use `<x-layout>`** — a documented, deliberate divergence from every other view in the app. Reasoning captured in a comment in the file itself: a 500 page must render correctly even when something else is broken (session, auth, database), and `<x-layout>` calls `@auth`/`route()`, which could themselves fail if the underlying breakage is in auth or routing. The 500 view has zero dependencies by design.
+3. **Tests**: `tests/Feature/ErrorPagesTest.php`, 4 tests — undefined route → custom 404; route-model-binding miss (`GET /projects/999999`) → also a custom 404, via a different mechanism (`ModelNotFoundException` rather than no matching route, both converge on the same view); unauthorized access → custom 403; and the most important one — **`APP_DEBUG=false` does not leak the exception message or class name**, verified by actually throwing a real `RuntimeException` through the normal HTTP pipeline (a temporary route registered inside the test itself, not a persisted app route) and asserting the response body contains neither the message nor "RuntimeException." Caught and fixed one test bug while writing this: `assertSee()` HTML-escapes its needle by default (assuming Blade `{{ }}` output), which doesn't match this app's error pages' plain unescaped static text — fixed by passing `false` to disable escaping, with the reason documented inline.
+4. **Manual HTTP verification of the exact spec requirement, not just the automated test**: temporarily added a route that throws (`/__debug-trigger-500`), started `php artisan serve`, hit it with `APP_DEBUG=true` — confirmed Laravel's detailed debug page shows the exception message/class **6 times** in the response. Then edited `.env` to `APP_DEBUG=false` (no server restart needed — `php artisan serve`'s built-in PHP server re-reads `.env` per request, confirmed empirically) and hit the same route again — confirmed the custom 500 page renders with the exception message/class appearing **zero** times, only the generic "Something went wrong" text. **Both the temporary route and the `.env` change were then cleanly reverted** — confirmed via `git diff routes/web.php` (zero diff) and re-reading `.env` (`APP_DEBUG=true` restored) before proceeding to anything else.
+5. Wrote `docs/backend-concepts/error-handling.md` — covers the 404/403/500 mechanism, the `APP_DEBUG` behavior with the actual measured verification numbers (6 leaked mentions vs. 0), and why the 500 view's lack of `<x-layout>` is a deliberate choice.
+
+Remaining for full Phase 2: remaining foundational ADRs (001–004 — never actually written, treated as "implicit" since Phase 1), remaining backend-concepts docs (database-indexes.md, transactions.md as a standalone concept doc distinct from ADR 008, pagination.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md), a real `DatabaseSeeder` at the spec's required volume with named demo accounts, the 5 numbered failure experiments, `docs/testing/manual-verification.md`, final learning report, final backend assessment.
+
+Verification:
+- `php artisan test --filter=ErrorPagesTest` → 4 passed, 13 assertions (VERIFIED)
+- `php artisan test` (full suite) → 61 passed, 154 assertions (VERIFIED)
+- `./vendor/bin/pint --test` → passed after 1 auto-fix (import ordering in the new test file) (VERIFIED)
+- Manual HTTP verification with `APP_DEBUG=true`: exception details appeared 6 times in the response (VERIFIED)
+- Manual HTTP verification with `APP_DEBUG=false`: exception details appeared 0 times, generic 500 page rendered instead (VERIFIED)
+- Clean revert of both temporary changes confirmed via `git diff routes/web.php` (empty) and `.env` re-read (`APP_DEBUG=true`) (VERIFIED)
+
+Files changed:
+- Added: `resources/views/errors/404.blade.php`, `403.blade.php`, `500.blade.php`
+- Added: `tests/Feature/ErrorPagesTest.php`
+- Added: `docs/backend-concepts/error-handling.md`
+- (Temporarily modified and cleanly reverted, not part of the final diff: `routes/web.php`, `.env`)
+
 ## Important Decisions
 
 1. **Laravel 13 over an older LTS** — chosen because it's the latest stable major and PHP 8.5.11 (the verified machine PHP) is only supported starting Laravel 13 (Laravel 12 tops out at PHP 8.5 too, actually — 12 supports 8.2–8.5 and 13 supports 8.3–8.5 — both would technically work). Went with 13 per the spec's explicit target ("targeting Laravel 13 if it is still the latest stable compatible release"), and it was still latest stable and compatible. No ADR needed yet for this — will be captured implicitly in the general architecture docs during Phase 2, or given its own ADR if a future session judges it warrants one.
@@ -385,6 +410,8 @@ Files changed:
 22. **Dashboard "Pending Tasks" defined as `NOT IN (Completed, Cancelled)`, not just `!= Completed`** — a cancelled task is neither pending work nor completed work; treating it as "pending" would inflate that count with tasks nobody is going to act on.
 23. **"Pending" and "Overdue" are not mutually exclusive counts** — an overdue task is still incomplete/pending work, so it correctly increments both counters. Verified explicitly via manual HTTP test (a task with a past due_date and `todo` status counted toward both).
 24. **`DashboardTest` rewritten mid-writing after catching its own flaw**: an initial draft used `assertSee('1</div>')`-style HTML substring matching, then was recognized as unreliable (multiple distinct stats could share the same numeric value and false-positive match) before being kept — rewritten to assert on `$response->viewData(null)` instead, asserting the actual typed PHP values passed to the view.
+25. **`errors/500.blade.php` does NOT extend `<x-layout>`, unlike every other view in the app** — a 500 page must render correctly even when auth/session/routing itself is what's broken; `<x-layout>` depends on all three resolving successfully.
+26. **`APP_DEBUG=false` behavior verified empirically over real HTTP in both directions (true and false), not just asserted in one automated test** — manually triggered a real exception through `php artisan serve` with both settings, confirmed the debug page leaks details 6 times when `true` and the custom page leaks 0 times when `false`. Temporary route and `.env` change both cleanly reverted afterward, confirmed via `git diff`.
 
 ## Known Issues
 
@@ -517,18 +544,35 @@ Manual curl verification (single user session):
   create 1 project + 1 overdue task (todo, due_date in the past) + 1 completed task   → all 302
   GET /dashboard   → 1/2/1/1/1 (projects/tasks/completed/pending/overdue) — exact match to hand-computed expectation, including the overdue task correctly counting toward BOTH pending and overdue
   cleanup: killed dev server, DELETE FROM tasks/project_user/projects/users WHERE ...   → confirmed 0/0/0 rows remain in dev database
+
+--- Phase 2.7 (Error-page hardening) ---
+php artisan test --filter=ErrorPagesTest   → 4 passed, 13 assertions
+php artisan test (full suite)   → 61 passed, 154 assertions
+./vendor/bin/pint --test (before fix)   → failed, 1 file (ErrorPagesTest.php, import ordering)
+./vendor/bin/pint (auto-fix) + re-run tests   → fixed, 61 passed unchanged
+Manual HTTP verification via php artisan serve, real APP_DEBUG toggle:
+  Temporarily added Route::get('/__debug-trigger-500', fn () => throw new RuntimeException(...))
+  GET /__debug-trigger-500 with APP_DEBUG=true    → 500, exception message/class appear 6 times in response body
+  Edited .env to APP_DEBUG=false (no server restart — confirmed built-in PHP server re-reads .env per request)
+  GET /__debug-trigger-500 with APP_DEBUG=false   → 500, exception message/class appear 0 times, generic custom page renders instead
+  Reverted .env to APP_DEBUG=true and removed the temporary route
+  git diff routes/web.php   → empty (confirms clean revert); grep APP_DEBUG .env → APP_DEBUG=true (confirms revert)
 ```
 
 ## Current Blocker
 
-None. Phase 2.6 (Dashboard) is complete and verified, pending only the commit/push described in NEXT ACTION step 1. Every functional-requirements section of the spec (Authentication, Dashboard, Projects, Membership, Tasks, Comments, Activity Logs) now has a real, working, tested implementation.
+None. Phase 2.7 (error-page hardening) is complete and verified, pending only the commit/push described in NEXT ACTION step 1.
 
 ## NEXT ACTION
 
-1. **Immediate**: commit this Phase 2.6 work (Dashboard — everything listed under "Files changed" in the Phase 2.6 section above) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing, confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed.
-2. Recommended next sub-phase: **Backend hardening — error pages** (spec's Error Handling section):
-   - `resources/views/errors/404.blade.php`, `403.blade.php`, `500.blade.php` — Laravel automatically uses these if present (no registration needed), matching the `x-layout` component style already used throughout the app for visual consistency.
-   - Explicitly verify (not assume) that `APP_DEBUG=false` suppresses stack traces — test by temporarily setting it in `.env`, triggering a 500 (e.g. a deliberately broken route), confirming the response is generic, then reverting `.env`. This is a concrete verification opportunity the spec asks for by name ("Do not expose stack traces... to normal users in production mode").
-   - This naturally sets up Failure Experiment content later (removing a policy check → observing raw vs. custom error pages).
-3. Then, in roughly this order: remaining ADRs (001 Laravel monolith, 002 PostgreSQL, 003 Blade server-rendered UI, 004 Eloquent ORM — these were treated as "implicit" from Phase 1 onward and never actually written; decide whether to backfill them now with real reasoning or explicitly document why they were skipped), remaining backend-concepts docs (database-indexes.md, transactions.md as a standalone concept doc distinct from ADR 008, pagination.md, error-handling.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md), a real `DatabaseSeeder` invoking all four factories (User/Project/Task/Comment) at the spec's required volume (10+ users, 5+ projects, 50+ tasks, 100+ comments) plus the spec's named demo accounts (admin@example.test / manager@example.test / member@example.test / viewer@example.test, with documented demo passwords), the 5 numbered failure experiments from the spec (deliberately break auth/validation/transactions/N+1/DB-constraints and document what happens — most of the underlying mechanics to break are already built and testable), `docs/testing/manual-verification.md` (a consolidated checklist — much of its content already exists scattered across this file's manual-verification notes per phase and could be extracted/reorganized rather than written from scratch), final learning report, final backend assessment (the ~20 questions).
-4. Nothing scope-wise has changed beyond what Phase 2.6 added — this really is the tail of the project now: hardening, documentation completion, and the teaching/assessment deliverables the spec asks for at the end.
+1. **Immediate**: commit this Phase 2.7 work (error pages, ErrorPagesTest, error-handling.md — everything listed under "Files changed" in the Phase 2.7 section above) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing, confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed. Note: `routes/web.php` and `.env` should show ZERO diff at commit time (the temporary debug route/flag were reverted) — if either shows an unexpected diff, investigate before committing rather than assuming it's fine.
+2. Recommended next sub-phase: **remaining foundational ADRs** (001–004) — these were treated as "implicit, will write later" all the way back in Phase 1/2.1 and never actually written:
+   - `001-laravel-monolith.md` — why a monolith over microservices (the project's own "Do Not Over-Engineer" section already has the reasoning; just needs to be captured in ADR format)
+   - `002-postgresql.md` — why PostgreSQL over MySQL/SQLite (partially covered already in `docs/architecture/adr/010-testing-strategy.md`'s Option A/B discussion, but that ADR is about *testing*, not the general choice — 002 should be the general-purpose decision record)
+   - `003-blade-server-rendered-ui.md` — why Blade over a separate SPA frontend
+   - `004-eloquent-orm.md` — why Eloquent over raw SQL/query builder (touches on the org's own "never use raw SQL strings" rule as a contributing factor)
+3. After ADRs: remaining backend-concepts docs (database-indexes.md, transactions.md as a standalone concept doc distinct from ADR 008's specific decision, pagination.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md — 8 remaining).
+4. Then: a real `DatabaseSeeder` invoking all four factories (User/Project/Task/Comment) at the spec's required volume (10+ users, 5+ projects, 50+ tasks, 100+ comments), plus the spec's named demo accounts (admin@example.test / manager@example.test / member@example.test / viewer@example.test) with documented demo passwords — none of this exists yet, `DatabaseSeeder.php` is still the Laravel-default empty stub.
+5. Then: the 5 numbered failure experiments from the spec (deliberately break auth/validation/transactions/N+1/DB-constraints and document what happens) — most of the underlying mechanics to break are already built and individually testable from prior phases, this phase is about deliberately breaking them ON PURPOSE and writing up the observed failure, not building new functionality.
+6. Then: `docs/testing/manual-verification.md` (a consolidated checklist — much of its content already exists scattered across this file's manual-verification notes per phase and could be extracted/reorganized rather than written from scratch), final learning report (`docs/FINAL-LEARNING-REPORT.md`), final backend assessment (~20 questions, spec explicitly says not to provide answers until asked).
+7. Nothing scope-wise has changed beyond what Phase 2.7 added — remaining work is entirely: ADRs, docs, seeders, failure experiments, and the two final teaching deliverables.
