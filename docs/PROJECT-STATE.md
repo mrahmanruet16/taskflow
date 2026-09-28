@@ -2,13 +2,13 @@
 
 ## Current Phase
 
-Phase: 2 — Implement the learning project (sub-phase 2.7: Error-page hardening)
-Status: Sub-phases 2.1–2.7 (Authentication, Projects, Membership, Tasks, Comments, Dashboard, Error hardening) COMPLETE and VERIFIED. Remaining ADRs/docs, seeders at volume, failure experiments, final report/assessment NOT started.
+Phase: 2 — Implement the learning project (sub-phase 2.8: Foundational ADRs)
+Status: Sub-phases 2.1–2.8 COMPLETE and VERIFIED. All 10 spec-required ADRs now exist (001–010). Remaining backend-concepts docs, seeders at volume, failure experiments, final report/assessment NOT started.
 Last Updated: 2026-09-28
 
 ## Remote
 
-Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Ten commits pushed and confirmed (`git push` output showed `0c20e87..53268e4  main -> main`):
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Eleven commits pushed as of the last confirmed push (`fa43d79`); Phase 2.8 (foundational ADRs, this checkpoint) is NOT YET COMMITTED as of this writing — see NEXT ACTION, and do not trust this line without re-checking `git log`/`git status`:
 - `84a7bd8` — root commit, covers Phases 1 + 2.1 (Authentication) + 2.2 (Projects CRUD)
 - `3c7cb50` — Phase 2.3 (Project Membership, transactions, activity logging)
 - `2d6eb19` — PROJECT-STATE.md correction after confirming the 2.3 push
@@ -19,6 +19,7 @@ Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Ten commit
 - `7de4bd0` — Phase 2.6 (Dashboard real aggregation)
 - `0c20e87` — PROJECT-STATE.md correction after confirming the 2.6 push
 - `53268e4` — Phase 2.7 (error pages, APP_DEBUG verification)
+- `fa43d79` — PROJECT-STATE.md correction after confirming the 2.7 push (also fixed a stray duplicate line)
 
 Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
 
@@ -53,7 +54,7 @@ Full detail and compatibility reasoning: `docs/architecture/version-matrix.md`.
 - [ ] Phase 9 — Tests
 - [ ] Phase 10 — UI/browser verification
 - [ ] Phase 11 — Failure experiments
-- [ ] Phase 12 — Documentation and ADR completion
+- [~] Phase 12 — Documentation and ADR completion (ADRs: all 10 spec-required ADRs now exist, sub-phase 2.8, complete — 001 monolith, 002 PostgreSQL, 003 Blade, 004 Eloquent/no-repository, 005 session auth, 006 policy authorization, 007 no-service-layer, 008 transactions, 009 pagination, 010 testing strategy. Backend-concepts docs: 6 of 14 written — database-indexes.md, transactions.md (standalone), pagination.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md still remaining)
 - [ ] Phase 13 — Final learning report
 - [ ] Phase 14 — Final backend assessment
 
@@ -386,6 +387,32 @@ Files changed:
 - Added: `docs/backend-concepts/error-handling.md`
 - (Temporarily modified and cleanly reverted, not part of the final diff: `routes/web.php`, `.env`)
 
+### Phase 2.8 — Foundational ADRs (001–004, 007)
+Status: Complete, verified (no code changes, pure documentation — sanity-checked that the test suite and Pint remain unaffected)
+
+Completed:
+1. **ADR 001 (Laravel monolith)**: documents why TaskFlow is one Laravel app rather than microservices — ties directly to why cross-entity transactions (ADR 008) and Eloquent relationships (`docs/backend-concepts/database-relationships.md`) are easy to demonstrate cleanly in this app, which would become a distributed-transaction problem across service boundaries.
+2. **ADR 002 (PostgreSQL)**: documents the primary-database choice, distinct from ADR 010 (which is specifically about the *test* database strategy). Captures a sub-decision not previously written down anywhere: `ProjectStatus`/`TaskStatus`/`TaskPriority`/`ProjectRole` are stored as plain `VARCHAR` with PHP-level enum casting, NOT PostgreSQL's native `ENUM` type — deliberately, since adding a new PHP enum case is less disruptive than a Postgres `ALTER TYPE`.
+3. **ADR 003 (Blade)**: documents why no SPA/API layer exists, tying directly to the "one hop, fully traceable" request lifecycle goal already documented in `docs/architecture/request-lifecycle.md`, and explicitly cross-references why `@can` Blade checks are UI convenience only (ADR 006).
+4. **ADR 004 (Eloquent, no repository pattern)**: documents the middle-ground actually built — direct Eloquent in controllers, but small reusable logic (`Project::hasMember()`, `Task::isOverdue()`) factored onto models rather than left duplicated OR extracted into a full repository layer. Explicitly ties to the org's "never use raw SQL strings" security rule as a contributing factor, not just a style preference.
+5. **ADR 007 (no service layer)** — a gap discovered while verifying the ADR list against the spec's exact required set (001–010); 005/006/008/009/010 already existed, but 007 had never been written. Documents the actual, real decision already implicitly made throughout every controller in this app (business logic lives in controllers, not in a separate `app/Services/` layer) — using `ProjectController::store()`'s transaction as the concrete example of logic that's short enough to stay inline, with an explicit trigger for when this would be reconsidered (the moment any business operation needs a second real caller beyond its current single controller action).
+
+All 10 spec-required ADRs (001–010) now exist. This was a documentation-only phase — no application code, routes, migrations, or tests were touched. Verified this claim by re-running the full test suite and Pint after writing all 5 ADRs, confirming zero regressions (expected, but checked rather than assumed).
+
+Remaining for full Phase 2: 8 of 14 backend-concepts docs still unwritten (database-indexes.md, transactions.md as a standalone concept doc — distinct from ADR 008's specific decision — pagination.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md), a real `DatabaseSeeder` at volume with named demo accounts, the 5 numbered failure experiments, `docs/testing/manual-verification.md`, final learning report, final backend assessment.
+
+Verification:
+- `php artisan test` (full suite) → 61 passed, 154 assertions, unchanged from before this phase (VERIFIED — confirms a documentation-only phase genuinely touched no code)
+- `./vendor/bin/pint --test` → passed (VERIFIED)
+- `ls docs/architecture/adr/` → confirmed exactly 10 files, 001 through 010, matching the spec's required list verbatim (VERIFIED)
+
+Files changed:
+- Added: `docs/architecture/adr/001-laravel-monolith.md`
+- Added: `docs/architecture/adr/002-postgresql.md`
+- Added: `docs/architecture/adr/003-blade-server-rendered-ui.md`
+- Added: `docs/architecture/adr/004-eloquent-orm.md`
+- Added: `docs/architecture/adr/007-service-layer.md`
+
 ## Important Decisions
 
 1. **Laravel 13 over an older LTS** — chosen because it's the latest stable major and PHP 8.5.11 (the verified machine PHP) is only supported starting Laravel 13 (Laravel 12 tops out at PHP 8.5 too, actually — 12 supports 8.2–8.5 and 13 supports 8.3–8.5 — both would technically work). Went with 13 per the spec's explicit target ("targeting Laravel 13 if it is still the latest stable compatible release"), and it was still latest stable and compatible. No ADR needed yet for this — will be captured implicitly in the general architecture docs during Phase 2, or given its own ADR if a future session judges it warrants one.
@@ -414,8 +441,8 @@ Files changed:
 24. **`DashboardTest` rewritten mid-writing after catching its own flaw**: an initial draft used `assertSee('1</div>')`-style HTML substring matching, then was recognized as unreliable (multiple distinct stats could share the same numeric value and false-positive match) before being kept — rewritten to assert on `$response->viewData(null)` instead, asserting the actual typed PHP values passed to the view.
 25. **`errors/500.blade.php` does NOT extend `<x-layout>`, unlike every other view in the app** — a 500 page must render correctly even when auth/session/routing itself is what's broken; `<x-layout>` depends on all three resolving successfully.
 26. **`APP_DEBUG=false` behavior verified empirically over real HTTP in both directions (true and false), not just asserted in one automated test** — manually triggered a real exception through `php artisan serve` with both settings, confirmed the debug page leaks details 6 times when `true` and the custom page leaks 0 times when `false`. Temporary route and `.env` change both cleanly reverted afterward, confirmed via `git diff`.
-
-## Known Issues
+27. **`ProjectStatus`/`TaskStatus`/`TaskPriority`/`ProjectRole` stored as plain `VARCHAR` with PHP-enum casting, not PostgreSQL native `ENUM` types** — a sub-decision made implicitly back in Phase 2.2 but only formally documented now (ADR 002): adding a new PHP enum case is less disruptive than a Postgres `ALTER TYPE` migration.
+28. **No service layer (`app/Services/`) anywhere in this app** — business logic lives directly in controllers; the multi-step `DB::transaction()` in `ProjectController::store()` is the concrete example. Documented in ADR 007 with an explicit trigger for reconsidering: the moment any business operation needs a second real caller beyond its current single controller action.
 
 - ~~Issue: `phpunit.xml` uses in-memory SQLite for tests, not PostgreSQL.~~ **RESOLVED in Phase 2.1** — see ADR 010. `phpunit.xml` now points at `laravel_learning_test` (PostgreSQL), credentials inherited from `.env` (not duplicated in the committed file).
 
@@ -559,22 +586,27 @@ Manual HTTP verification via php artisan serve, real APP_DEBUG toggle:
   GET /__debug-trigger-500 with APP_DEBUG=false   → 500, exception message/class appear 0 times, generic custom page renders instead
   Reverted .env to APP_DEBUG=true and removed the temporary route
   git diff routes/web.php   → empty (confirms clean revert); grep APP_DEBUG .env → APP_DEBUG=true (confirms revert)
+
+--- Phase 2.8 (Foundational ADRs) ---
+php artisan test (full suite, after writing 5 ADR markdown files, zero code touched)   → 61 passed, 154 assertions, unchanged
+./vendor/bin/pint --test   → passed
+ls docs/architecture/adr/ | sort   → confirmed exactly 10 files (001–010), matching spec's required list
 ```
 
 ## Current Blocker
 
-None. Phase 2.7 (error-page hardening) is complete and verified, pending only the commit/push described in NEXT ACTION step 1.
+None. Phase 2.8 (foundational ADRs) is complete and verified, pending only the commit/push described in NEXT ACTION step 1. All 10 spec-required ADRs now exist.
 
 ## NEXT ACTION
 
-1. **Immediate**: commit this Phase 2.7 work (error pages, ErrorPagesTest, error-handling.md — everything listed under "Files changed" in the Phase 2.7 section above) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing, confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed. Note: `routes/web.php` and `.env` should show ZERO diff at commit time (the temporary debug route/flag were reverted) — if either shows an unexpected diff, investigate before committing rather than assuming it's fine.
-2. Recommended next sub-phase: **remaining foundational ADRs** (001–004) — these were treated as "implicit, will write later" all the way back in Phase 1/2.1 and never actually written:
-   - `001-laravel-monolith.md` — why a monolith over microservices (the project's own "Do Not Over-Engineer" section already has the reasoning; just needs to be captured in ADR format)
-   - `002-postgresql.md` — why PostgreSQL over MySQL/SQLite (partially covered already in `docs/architecture/adr/010-testing-strategy.md`'s Option A/B discussion, but that ADR is about *testing*, not the general choice — 002 should be the general-purpose decision record)
-   - `003-blade-server-rendered-ui.md` — why Blade over a separate SPA frontend
-   - `004-eloquent-orm.md` — why Eloquent over raw SQL/query builder (touches on the org's own "never use raw SQL strings" rule as a contributing factor)
-3. After ADRs: remaining backend-concepts docs (database-indexes.md, transactions.md as a standalone concept doc distinct from ADR 008's specific decision, pagination.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md — 8 remaining).
-4. Then: a real `DatabaseSeeder` invoking all four factories (User/Project/Task/Comment) at the spec's required volume (10+ users, 5+ projects, 50+ tasks, 100+ comments), plus the spec's named demo accounts (admin@example.test / manager@example.test / member@example.test / viewer@example.test) with documented demo passwords — none of this exists yet, `DatabaseSeeder.php` is still the Laravel-default empty stub.
-5. Then: the 5 numbered failure experiments from the spec (deliberately break auth/validation/transactions/N+1/DB-constraints and document what happens) — most of the underlying mechanics to break are already built and individually testable from prior phases, this phase is about deliberately breaking them ON PURPOSE and writing up the observed failure, not building new functionality.
-6. Then: `docs/testing/manual-verification.md` (a consolidated checklist — much of its content already exists scattered across this file's manual-verification notes per phase and could be extracted/reorganized rather than written from scratch), final learning report (`docs/FINAL-LEARNING-REPORT.md`), final backend assessment (~20 questions, spec explicitly says not to provide answers until asked).
-7. Nothing scope-wise has changed beyond what Phase 2.7 added — remaining work is entirely: ADRs, docs, seeders, failure experiments, and the two final teaching deliverables.
+1. **Immediate**: commit this Phase 2.8 work (5 new ADR files — everything listed under "Files changed" in the Phase 2.8 section above) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing (low risk this time — pure prose files, but stay consistent), confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed.
+2. Recommended next sub-phase: **remaining backend-concepts docs** (8 of 14 files from the spec's required `docs/backend-concepts/` list still unwritten):
+   - `database-indexes.md` — could largely be assembled from the "why this index" reasoning already written inline in every migration's comments (`projects`, `tasks`, `project_user`, `activity_logs`, `comments`) — this doc's job is to collect and explain that reasoning as a standalone concept, not rediscover it.
+   - `transactions.md` — a standalone concept doc distinct from ADR 008 (which documents the *decision*; this doc should teach the *concept* generally — atomicity/rollback/consistency — using the same `ProjectController::store()` example ADR 008 already covers).
+   - `pagination.md` — teach offset vs. cursor pagination as a concept; ADR 009 already has the decision reasoning, this doc explains the mechanism (what SQL `paginate()` generates — `LIMIT`/`OFFSET`).
+   - `logging.md` — not yet covered anywhere; needs actual content on Laravel's `Log` facade, log channels/levels, and the explicit "never log passwords/tokens/PII" rule from the spec — check whether this app currently does any deliberate logging beyond the framework defaults (worth auditing before writing this doc, since the doc should describe what's ACTUALLY implemented, not aspirational content).
+   - `http-and-rest.md`, `routing.md`, `middleware.md`, `controllers.md` — foundational HTTP/Laravel concept docs, not yet written; could each point to concrete examples already built (e.g. `routing.md` → the actual `routes/web.php` groupings; `middleware.md` → the `auth`/`guest` groups and what happens without them, tying into the planned Failure Experiment 1).
+3. Then: a real `DatabaseSeeder` invoking all four factories (User/Project/Task/Comment) at the spec's required volume (10+ users, 5+ projects, 50+ tasks, 100+ comments), plus the spec's named demo accounts (admin@example.test / manager@example.test / member@example.test / viewer@example.test) with documented demo passwords — none of this exists yet, `DatabaseSeeder.php` is still the Laravel-default empty stub.
+4. Then: the 5 numbered failure experiments from the spec (deliberately break auth/validation/transactions/N+1/DB-constraints and document what happens) — most of the underlying mechanics to break are already built and individually testable from prior phases; this phase is about deliberately breaking them ON PURPOSE and writing up the observed failure, not building new functionality. Several natural hooks already exist: removing the `auth` middleware (routes/web.php comments already reference this as "Failure Experiment 1"), removing the `DB::transaction()` in `ProjectController::store()` (ADR 008 already references this as "Failure Experiment 3"), removing eager loading from `ProjectController::index()`/`show()` (ties to the N+1 measurement already done in `docs/backend-concepts/eloquent.md`).
+5. Then: `docs/testing/manual-verification.md` (a consolidated checklist — much of its content already exists scattered across this file's manual-verification notes per phase and could be extracted/reorganized rather than written from scratch), final learning report (`docs/FINAL-LEARNING-REPORT.md`), final backend assessment (~20 questions, spec explicitly says not to provide answers until asked).
+6. Nothing scope-wise has changed beyond what Phase 2.8 added — remaining work is entirely: 8 backend-concepts docs, seeders/demo accounts, failure experiments, and the two final teaching deliverables.
