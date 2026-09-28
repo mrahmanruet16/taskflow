@@ -2,9 +2,13 @@
 
 ## Current Phase
 
-Phase: 2 — Implement the learning project (sub-phase 2.2: Projects)
-Status: Sub-phases 2.1 (Authentication) and 2.2 (Projects CRUD) COMPLETE and VERIFIED. Dashboard aggregation, Project Membership, Tasks, Comments, Activity Logs, hardening, pagination-elsewhere, filtering/sorting NOT started.
+Phase: 2 — Implement the learning project (sub-phase 2.3: Project Membership)
+Status: Sub-phases 2.1 (Authentication), 2.2 (Projects CRUD), 2.3 (Project Membership + transactions + activity logs) COMPLETE and VERIFIED. Dashboard real aggregation, Tasks, Comments, hardening, filtering/sorting NOT started.
 Last Updated: 2026-09-28
+
+## Remote
+
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. First commit (root commit, covers Phases 1 + 2.1 + 2.2) pushed and confirmed. Sub-phase 2.3 (this checkpoint) is NOT YET COMMITTED as of this writing — will be committed and pushed immediately after this PROJECT-STATE.md update, see NEXT ACTION for confirmation the push actually succeeded (do not assume it did without checking `git log`/`git status` in a future session).
 
 ## Project Location
 
@@ -27,10 +31,10 @@ Full detail and compatibility reasoning: `docs/architecture/version-matrix.md`.
 - [x] Phase 0 — Environment / project bootstrap (this was done as a separate pre-Laravel environment inspection; see `ENVIRONMENT-REPORT.md` at repo root — note that report's PHP version line (8.2.34) is STALE, superseded by the re-verification in Phase 1)
 - [x] Phase 1 — Bootstrap and prove the foundation (Laravel project created; see below)
 - [x] Phase 2 — Authentication and sessions (sub-phase 2.1, complete)
-- [x] Phase 3 — Projects CRUD (sub-phase 2.2, complete; Membership/roles still pending — interim "creator only" authorization rule in place)
-- [ ] Phase 4 — Project membership and authorization
+- [x] Phase 3 — Projects CRUD (sub-phase 2.2, complete)
+- [x] Phase 4 — Project membership and authorization (sub-phase 2.3, complete — roles: owner/manager/member/viewer, real membership-based ProjectPolicy, transaction-wrapped project creation, activity logging for project/member events)
 - [ ] Phase 5 — Tasks
-- [ ] Phase 6 — Comments and activity logging
+- [ ] Phase 6 — Comments and activity logging (activity_logs table + logging infrastructure already exist from 2.3 — this phase is really "extend logging to Task/Comment events," not build it from scratch)
 - [ ] Phase 7 — Validation, errors, transactions and backend hardening
 - [ ] Phase 8 — Pagination, filtering and sorting
 - [ ] Phase 9 — Tests
@@ -178,6 +182,56 @@ Files changed:
 - Added: `docs/architecture/adr/006-policy-based-authorization.md`, `docs/architecture/adr/009-pagination-strategy.md`
 - Added: `docs/backend-concepts/authorization-and-policies.md`, `docs/backend-concepts/validation.md`
 
+### Phase 2.3 — Project Membership (roles, transactions, activity logging)
+Status: Complete, verified (automated tests + extensive manual HTTP verification of role-based authorization)
+
+Completed:
+1. **`ProjectRole` backed enum** (`app/Enums/ProjectRole.php`): `owner`/`manager`/`member`/`viewer`, with a `canManageProject(): bool` helper centralizing "which roles may edit project metadata" so that logic lives in one place rather than being duplicated across Policy methods.
+2. **Migrations**: `project_user` pivot (`project_id`, `user_id`, `role`, `cascadeOnDelete()` on both FKs — deliberately the OPPOSITE trade-off from `projects.created_by`'s `restrictOnDelete()`, reasoning documented inline: a membership row has no meaning once either side is gone, whereas a project's ownership record should never silently disappear) with a `unique(['project_id', 'user_id'])` constraint (one role per user per project); `activity_logs` (polymorphic `subject_type`/`subject_id` via `nullableMorphs()`, `user_id` with `nullOnDelete()` — reasoning documented inline: audit trail should survive the actor's account being deleted). **Caught and fixed a redundant index**: initially added an explicit `index(['subject_type', 'subject_id'])` after `nullableMorphs('subject')`, then realized `nullableMorphs()` already creates that exact index automatically — removed the duplicate before migrating.
+3. **`ActivityLog` model** (`app/Models/ActivityLog.php`): `user()` belongsTo, `subject()` morphTo.
+4. **`Project` model expanded**: `members()` (belongsToMany with `withPivot('role')`), `activities()` (morphMany, `->latest()`), `hasMember(User): bool`, `roleOf(User): ?ProjectRole` — the latter two are the actual primitives `ProjectPolicy` now checks against.
+5. **`User` model expanded**: `projects()` (belongsToMany membership, distinct from `projectsCreated()` — documented why both exist and can diverge), `activities()` hasMany.
+6. **`ProjectPolicy` rewritten** from the Phase 2.2 interim "creator only" rule to real membership-based checks: `view`/`viewMembers` — any member (any role); `update` — Owner/Manager only (via `canManageProject()`); `delete` — Owner only, deliberately MORE restrictive than update; `manageMembers` — Owner/Manager only. Every method now delegates to `Project::hasMember()`/`roleOf()` rather than comparing `created_by` directly.
+7. **`ProjectController` updated**: `index()` now scopes to `Auth::user()->projects()` (membership) instead of `projectsCreated()`. **`store()` rewritten to wrap all three writes — create project, attach creator as Owner in `project_user`, write an activity log entry — in `DB::transaction()`** (this is the spec's explicitly suggested transaction example, deferred from Phase 2.2 specifically so it could be implemented once the supporting tables existed rather than bolted on afterward). `show()` now eager-loads `['members', 'activities.user']`. `update()` also writes an activity log entry (not wrapped in a transaction — a single write, no atomicity concern).
+8. **`StoreProjectMemberRequest`**: authorizes via `manageMembers` policy; validates email exists as a user AND (via a closure rule, not just relying on the DB unique constraint) that the target isn't already a member — documented why the closure rule exists (a friendly validation message vs. a raw `QueryException`-turned-500).
+9. **`ProjectMemberController`** (`app/Http/Controllers/ProjectMemberController.php`): `index` (list members), `store` (add by email + role, logs activity), `destroy` (remove member, logs activity) — **with a business-rule guard against removing the last Owner** (would otherwise leave a project permanently undeletable and — subtly — unable to ever satisfy `ProjectPolicy::update()` for anyone, since no one would hold a manage-capable role). This guard is deliberately NOT a Form Request validation rule, since it depends on querying the state of *other* membership rows, not just the shape of the current request — matches the validation-vs-business-rule distinction documented in `docs/backend-concepts/validation.md`.
+10. **Routes**: `/projects/{project}/members` (GET/POST) and `/projects/{project}/members/{user}` (DELETE) — explicitly named routes rather than a full `Route::resource`, since only index/store/destroy are meaningful (no "edit a membership" screen). Matches the spec's required `/projects/{id}/members` screen.
+11. **Views**: `resources/views/projects/members.blade.php` (table + add-member form, `@can('manageMembers', ...)`-gated — UI convenience only, backed by the real server-side check in the controller, per ADR 006's dual-check pattern). `resources/views/projects/show.blade.php` updated to display the member list (with role badges) and activity feed, and to gate the "Edit Project" link behind `@can('update', $project)`.
+12. **A real regression, caught and fixed properly, not papered over**: switching `ProjectPolicy` to membership-based checks broke 4 of the existing 12 `ProjectTest` tests, because `ProjectFactory`-created projects had no corresponding `project_user` row (the factory only set `created_by`). Fixed by adding a `ProjectFactory::configure()` `afterCreating` hook that attaches the creator as Owner — framed explicitly as "factory-created projects should mirror the same invariant the real controller transaction guarantees," not as a test-only workaround.
+13. **Tests**: `tests/Feature/ProjectMemberTest.php`, 10 new tests — members list visible to members/blocked for non-members; owner can add a member; a plain Member role CANNOT add another member (403); cannot add a user who's already a member (validation error, not a DB exception); owner can remove a member; **cannot remove the last owner** (asserts the membership row survives); **Manager role can update the project, Member role cannot** (403); **only Owner, not Manager, can delete** (403 for Manager); creating a project via the real HTTP endpoint produces both the `project_user` row AND the `activity_logs` row (verifies the transaction's actual effect, not just that it doesn't crash).
+14. Wrote **ADR 008** (database transactions) documenting the project-creation transaction decision — written *as* the code was implemented.
+15. Wrote `docs/backend-concepts/database-relationships.md` — covers all four relationship types now in use (`belongsTo`, `hasMany`, `belongsToMany`, `morphTo`/`morphMany`) with the approximate SQL each generates, per the spec's explicit requirement to explain the many-to-many pattern.
+16. **Extensive manual HTTP verification**, learning from Phase 2.2's CSRF debugging detour — this time proactively cross-checked DB-stored session tokens against rendered-page tokens *before* assuming a bug, which correctly predicted several 419s were script artifacts, not app bugs, saving debugging time. Verified via real `curl` sessions (two separate users, separate cookie jars): registered Owner + Member users → Owner created a project → **DB-verified the transaction wrote all 3 rows** (project, `project_user` with role=owner, `activity_logs` entry) → added Member as a Manager → **Manager successfully updated the project (200/302, then DB-confirmed the rename)** → **Manager was correctly blocked (403) from deleting the project** → **attempted to remove the last Owner and confirmed both the 302 redirect-with-error AND that the membership row was NOT actually deleted** → re-triggered and captured the exact flashed error text ("Cannot remove the last owner of a project.") rendering correctly in the page. Cleaned up afterward: stopped the dev server, deleted all manually-created users/projects/memberships/activity logs from the dev database, confirmed 0 rows across all four tables.
+
+Remaining for full Phase 2: Dashboard real aggregation queries (still a stub — now meaningfully implementable since Projects/Membership exist, though Tasks would make it more complete), Tasks CRUD (spec section 5 — now unblocked, can reference `project_user` for assignment), Comments (spec section 6), extending activity logging to Task/Comment events (infrastructure already exists from this phase — just needs more `ActivityLog::create()` call sites), further validation/error-handling hardening, filtering/sorting (Tasks needs `?status=&priority=&assignee=` per spec), seeders at spec's required volume, remaining ADRs (001–004, 007), remaining backend-concepts docs (eloquent.md — still deferred until Tasks exist for a proper N+1 demo — database-indexes.md, transactions.md as a standalone concept doc distinct from ADR 008, pagination.md, error-handling.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md), remaining required screen (`/tasks/{id}`), failure experiments, final learning report, final assessment.
+
+Verification:
+- `php artisan migrate --pretend` then `--force` (both new migrations) → correct SQL, applied cleanly (VERIFIED)
+- `php artisan test --filter=ProjectTest` → 8 passed / 4 failed initially (expected regression from Policy change), then 12 passed / 27 assertions after the `ProjectFactory` fix (VERIFIED, regression correctly diagnosed and fixed rather than ignored)
+- `php artisan test --filter=ProjectMemberTest` → 10 passed, 24 assertions (VERIFIED)
+- `php artisan test` (full suite) → 34 passed, 82 assertions (VERIFIED)
+- `./vendor/bin/pint --test` → passed, no violations this time (VERIFIED)
+- Manual curl-based verification (two real user sessions, DB cross-checks at each step) → transaction confirmed atomic (all 3 rows present), Manager role-based update confirmed working, Manager delete-block confirmed (403), last-owner-removal guard confirmed both at the HTTP layer (redirect+error) and the DB layer (row survives) (ALL VERIFIED)
+- Dev database cleanup confirmed: 0 users, 0 projects, 0 project_user rows, 0 activity_logs rows after manual verification (VERIFIED)
+
+Files changed:
+- Added: `app/Enums/ProjectRole.php`
+- Added: `database/migrations/2026_09_28_124829_create_project_user_table.php`, `2026_09_28_124830_create_activity_logs_table.php`
+- Added: `app/Models/ActivityLog.php`
+- Modified: `app/Models/Project.php` (added `members()`, `activities()`, `hasMember()`, `roleOf()`)
+- Modified: `app/Models/User.php` (added `projects()`, `activities()`)
+- Modified: `app/Policies/ProjectPolicy.php` (rewritten for membership-based rules)
+- Modified: `app/Http/Controllers/ProjectController.php` (`index()` membership-scoped, `store()` transaction-wrapped, `show()` eager-loads members/activities, `update()` logs activity)
+- Added: `app/Http/Requests/StoreProjectMemberRequest.php`
+- Added: `app/Http/Controllers/ProjectMemberController.php`
+- Modified: `routes/web.php` (added members routes)
+- Added: `resources/views/projects/members.blade.php`
+- Modified: `resources/views/projects/show.blade.php` (members list, activity feed, gated Edit link)
+- Modified: `database/factories/ProjectFactory.php` (added `configure()`/`afterCreating` owner-membership hook)
+- Added: `tests/Feature/ProjectMemberTest.php`
+- Added: `docs/architecture/adr/008-database-transactions.md`
+- Added: `docs/backend-concepts/database-relationships.md`
+
 ## Important Decisions
 
 1. **Laravel 13 over an older LTS** — chosen because it's the latest stable major and PHP 8.5.11 (the verified machine PHP) is only supported starting Laravel 13 (Laravel 12 tops out at PHP 8.5 too, actually — 12 supports 8.2–8.5 and 13 supports 8.3–8.5 — both would technically work). Went with 13 per the spec's explicit target ("targeting Laravel 13 if it is still the latest stable compatible release"), and it was still latest stable and compatible. No ADR needed yet for this — will be captured implicitly in the general architecture docs during Phase 2, or given its own ADR if a future session judges it warrants one.
@@ -187,9 +241,14 @@ Files changed:
 5. **Project moved into `taskflow/` subdirectory** — user's explicit request, done before any Phase 2 work started. See Phase 2.1 notes above.
 6. **Hand-rolled authentication, no starter kit** — see ADR 005.
 7. **Switched test suite from SQLite to PostgreSQL, with a dedicated test database** — see ADR 010. Resolved earlier than originally planned (was going to wait until Phase 9) because it became a hard blocker the moment any test tried to touch the database, not just a stylistic preference.
-8. **`ProjectPolicy` uses an interim "creator only" rule, not real membership** — see ADR 006 and the comments in `ProjectPolicy.php` itself. This is a known, deliberate simplification: full role-based (owner/manager/member/viewer) authorization is deferred to the Project Membership sub-phase. Until then, `created_by` is being used as a stand-in for "has access."
+8. ~~`ProjectPolicy` uses an interim "creator only" rule, not real membership~~ **RESOLVED in Phase 2.3** — `ProjectPolicy` now checks real `project_user` membership/roles via `Project::hasMember()`/`roleOf()`.
 9. **Offset pagination (`paginate()`) over cursor pagination** for all list views — see ADR 009.
 10. **N+1 avoided proactively in `ProjectController::index()`** (`with('owner')`) rather than shipped naively and fixed later — the full before/after N+1 *demonstration* doc (`docs/backend-concepts/eloquent.md`) is still deferred until Tasks exist (richer example with two relations), but the production code itself was written correctly from the start.
+11. **`project_user` uses `cascadeOnDelete()` on both FKs, while `projects.created_by` uses `restrictOnDelete()`** — a deliberate, documented divergence: membership rows have no independent meaning once either side is gone, but project ownership records should never silently vanish. See the migration's inline comments and `docs/backend-concepts/database-relationships.md`.
+12. **`activity_logs.user_id` uses `nullOnDelete()`, not cascade or restrict** — an audit trail should survive the actor's account being deleted (the log entry stays, just with a null user reference) rather than being deleted itself or blocking account deletion.
+13. **Transaction for project creation deferred from Phase 2.2 to 2.3, implemented once `project_user`/`activity_logs` existed** — rather than either skipping it or awkwardly pre-creating those tables early. See ADR 008.
+14. **Last-owner-removal guard implemented as a controller-level business rule, not a Form Request validation rule** — because it depends on querying the state of OTHER membership rows (how many Owners currently exist), not just the shape of the current request. Matches the validation-vs-business-rule distinction in `docs/backend-concepts/validation.md`.
+15. **`ProjectFactory` updated to auto-attach creator as Owner via `afterCreating`** — after discovering this was a real, necessary fix (not a nice-to-have) once `ProjectPolicy` became membership-based; framed as "factories should produce the same valid invariant the real transaction guarantees," not a test-only hack.
 
 ## Known Issues
 
@@ -253,22 +312,47 @@ Debugging note: psql -d laravel_learning_dev -c "SELECT payload FROM sessions WH
 curl-based manual flow: register → create project → 302 → GET /projects shows "Website Redesign" with "Active" badge → PASS
 curl-based cross-user check: owner GET /projects/1 → 200; different logged-in user (stranger) GET /projects/1 → 403   → PASS, confirms server-side enforcement (ADR 006)
 psql -d laravel_learning_dev -c "DELETE FROM projects; DELETE FROM users WHERE email LIKE '%example.com'"   → cleanup confirmed, 0 users / 0 projects remain
+
+--- Git: first commit + push ---
+git add . (95 files) → reviewed via `git add -n .` dry run first, confirmed no vendor/node_modules/storage-cache/.env staged
+git diff --cached | grep -i "CHANGE_ME\|DB_PASSWORD"   → only placeholder/env()/prose matches, no actual secret value staged
+git commit (root commit, "Bootstrap TaskFlow...")   → 95 files, 17239 insertions
+ssh -T git@github.com   → "Hi mrahmanruet16! You've successfully authenticated" — confirmed BEFORE attempting push
+git remote add origin git@github.com:mrahmanruet16/taskflow.git
+git push -u origin main   → success, new branch main -> main on GitHub
+
+--- Phase 2.3 (Project Membership) ---
+php artisan migrate --pretend / --force (project_user, activity_logs)   → correct SQL, applied cleanly; caught and removed one redundant manual index (nullableMorphs() already creates it) before migrating
+php artisan test --filter=ProjectTest (immediately after ProjectPolicy rewrite, BEFORE factory fix)   → 8 passed / 4 FAILED (expected regression, correctly diagnosed as a consequence of switching to membership-based auth, not a bug)
+php artisan test --filter=ProjectTest (after ProjectFactory afterCreating fix)   → 12 passed, 27 assertions
+php artisan test --filter=ProjectMemberTest   → 10 passed, 24 assertions
+php artisan test (full suite)   → 34 passed, 82 assertions
+./vendor/bin/pint --test   → passed, no violations
+Manual curl verification (two real user sessions, owner.jar + member.jar):
+  register owner + register member   → both 302
+  create project as owner   → 302; psql cross-check: project + project_user(role=owner) + activity_logs row ALL present (transaction verified atomic)
+  add member@example.com as Manager via /projects/{id}/members   → 302; psql confirms project_user row with role=manager
+  GET /projects/{id}/edit as Manager   → 200 (before submitting, decoded DB session payload and compared to rendered CSRF token — exact match, confirming no app bug before proceeding)
+  PUT /projects/{id} as Manager (rename)   → 302; psql confirms project.name actually changed
+  DELETE /projects/{id} as Manager   → 403 (Owner-only delete rule enforced)
+  DELETE /projects/{id}/members/{ownerId} as Owner (removing the LAST owner)   → 302 redirect-with-error; psql confirms owner's project_user row WAS NOT removed; re-fetched page and captured exact flashed message "Cannot remove the last owner of a project."
+  cleanup: killed dev server, DELETE FROM project_user/activity_logs/projects/users WHERE ...   → confirmed 0/0/0/0 rows remain in dev database
 ```
 
 ## Current Blocker
 
-None. Phase 2.2 (Projects CRUD) is complete and verified.
+None. Phase 2.3 (Project Membership) is complete and verified, pending only the commit/push described in NEXT ACTION step 1.
 
 ## NEXT ACTION
 
-1. Recommended next sub-phase: **Project Membership** (spec section 4) — this is the natural point to:
-   - Add `project_user` pivot migration (project_id, user_id, role enum: owner/manager/member/viewer, timestamps) with a composite unique constraint on (project_id, user_id) so a user can't be added to the same project twice.
-   - Add `activity_logs` migration (user_id, subject — likely polymorphic: subject_type/subject_id — description, timestamps).
-   - Expand `ProjectPolicy` from its current interim "creator only" rule to real membership-based checks (`view`/`update` become "creator OR has a project_user row with sufficient role").
-   - **This is also where the spec's transaction demonstration belongs**: wrap "create project + insert creator as `owner` in `project_user` + write an activity log row" in `DB::transaction()`. This was deliberately NOT pulled forward into Phase 2.2 — Projects CRUD alone doesn't need `project_user`/`activity_logs` to exist, and bundling three new tables into one increment would have violated session-discipline "smallest coherent portion." Now that Projects works standalone, retrofitting `ProjectController::store()` to wrap the same 3-step transaction is itself a good teaching moment (before/after comparison for Failure Experiment 3).
-   - Members management UI (`/projects/{id}/members` — add/remove members, matches the spec's required screen list).
-   - Update `docs/backend-concepts/database-relationships.md` to cover the many-to-many pattern once implemented (spec explicitly asks to "explain how Laravel's many-to-many Eloquent relationship works").
-   - Write ADR 008 (transactions) alongside the actual transaction implementation, same pattern as ADR 006/009 — document decisions as they're made, not in a batch at the end.
-2. After Membership: Tasks (spec section 5) becomes unblocked (tasks belong to projects and reference project_user-style assignment), then Comments, then the Dashboard's real aggregation queries (now meaningful once Projects/Tasks exist), then pagination/filtering/sorting for Tasks specifically (Projects already has pagination; Tasks needs the `?status=&priority=&assignee=` filtering the spec describes).
-3. Still pending, no change in scope since last checkpoint beyond what Phase 2.2 added: ADRs 001–004, 007, 008 (005/006/009/010 now exist), most `docs/backend-concepts/*.md` files (eloquent.md notably still deferred — needs Tasks to exist for a proper N+1 demo), all Tasks/Comments/ActivityLog code, remaining required screens (`/projects/{id}/members`, `/tasks/{id}`), seeders at spec's required volume (10+ users, 5+ projects, 50+ tasks, 100+ comments — factories exist for User/Project but no seeder invokes them yet), failure experiments, final learning report, final assessment.
-4. No git commits exist yet. The uncommitted diff is now sizable (two full sub-phases of business logic). Strongly consider making the first commit at the start of the next session, before adding Membership, rather than letting this grow further — this is now a judgment call for the user, not purely an agent decision, since "when to first commit" wasn't explicitly specified.
+1. **Immediate**: commit this Phase 2.3 work (Membership, transactions, activity logging — everything listed under "Files changed" in the Phase 2.3 section above) and `git push origin main`. Follow the same review discipline used for the first commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing, confirm `git push` actually succeeds (check for `[new branch]`/`main -> main` or equivalent in the output — don't assume success without reading it). **A future session must verify via `git log` / `git status` whether this push actually happened** — do not trust this file's claim alone if it looks stale (e.g. if `Last Updated` above is more than a session old and no confirming git output is visible in the conversation).
+2. Recommended next sub-phase after committing: **Tasks** (spec section 5) — now fully unblocked:
+   - Migration: `tasks` table (id, project_id FK cascadeOnDelete, assigned_to FK to users nullable, created_by FK, title, description, status enum: todo/in_progress/completed/cancelled, priority enum: low/medium/high/urgent, due_date, timestamps). Index reasoning to document: project_id (every task list is scoped to a project), status/priority/assigned_to (spec explicitly requires filtering by all three).
+   - `Task` model + `TaskStatus`/`TaskPriority` enums (same backed-enum pattern as `ProjectStatus`/`ProjectRole`).
+   - `TaskPolicy` — likely "any project member can view tasks; Owner/Manager/assignee can update; Owner/Manager can delete" — needs a real decision, not just copy-pasted from ProjectPolicy.
+   - `StoreTaskRequest`/`UpdateTaskRequest`, `TaskController`, views including the required `/tasks/{id}` screen.
+   - **This is the natural point to finally write `docs/backend-concepts/eloquent.md` with a real N+1 demonstration** — `Project::all()` then accessing `->tasks` per-project (N+1) vs `Project::with('tasks')->get()` (fixed), now that Tasks actually exist to demonstrate this with.
+   - Filtering/sorting via query params (`?status=&priority=&assignee=`, `?sort=due_date`) — the spec's explicit requirement, not yet implemented anywhere in the app (Projects only has pagination, not filtering).
+   - Extend activity logging to Task events (created/updated/assigned/status changed) — infrastructure already exists, just add more `ActivityLog::create()` call sites following the same pattern as Project/Member events.
+   - Dashboard's real aggregation queries become meaningful once Tasks exist (Projects/Tasks/Completed/Pending/Overdue counts) — do this either right before or right after Tasks CRUD.
+3. Still pending, no change in scope since last checkpoint beyond what Phase 2.3 added: ADRs 001–004, 007 (005/006/008/009/010 now exist), most `docs/backend-concepts/*.md` files (eloquent.md, database-indexes.md, transactions.md-as-standalone-concept, pagination.md, error-handling.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md), all Tasks/Comments code, one remaining required screen (`/tasks/{id}`), seeders at spec's required volume (10+ users, 5+ projects, 50+ tasks, 100+ comments — factories exist for User/Project but no seeder invokes them at volume yet, and no TaskFactory/CommentFactory exist yet), failure experiments, final learning report, final assessment.

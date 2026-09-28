@@ -4,6 +4,7 @@ use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProjectController;
+use App\Http\Controllers\ProjectMemberController;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
@@ -40,6 +41,14 @@ Route::middleware('auth')->group(function () {
     // because "is logged in" (this middleware) and "is allowed to touch
     // THIS project" (the Policy) are different questions.
     Route::resource('projects', ProjectController::class);
+
+    // Nested under /projects/{project}/members, matching the spec's
+    // required screen. Named routes explicitly (rather than a full
+    // Route::resource) since only index/store/destroy are needed —
+    // there's no "edit a membership" screen, only add/remove.
+    Route::get('/projects/{project}/members', [ProjectMemberController::class, 'index'])->name('projects.members.index');
+    Route::post('/projects/{project}/members', [ProjectMemberController::class, 'store'])->name('projects.members.store');
+    Route::delete('/projects/{project}/members/{user}', [ProjectMemberController::class, 'destroy'])->name('projects.members.destroy');
 });
 
 // Phase 1 bootstrap-only verification route: proves Blade can render data

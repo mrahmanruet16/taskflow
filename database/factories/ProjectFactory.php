@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\ProjectRole;
 use App\Enums\ProjectStatus;
 use App\Models\Project;
 use App\Models\User;
@@ -29,5 +30,22 @@ class ProjectFactory extends Factory
             'due_date' => fake()->dateTimeBetween($start, '+4 months'),
             'created_by' => User::factory(),
         ];
+    }
+
+    /**
+     * Every real project gets its creator attached as Owner via the
+     * transaction in ProjectController::store() (ADR 008) — a project
+     * with no owner membership row is an invalid state the app never
+     * actually produces. Factory-created projects mirror that invariant
+     * here so tests exercise realistic data, not an app-can-never-reach
+     * edge case.
+     */
+    public function configure(): static
+    {
+        return $this->afterCreating(function (Project $project) {
+            if (! $project->hasMember($project->owner)) {
+                $project->members()->attach($project->created_by, ['role' => ProjectRole::Owner->value]);
+            }
+        });
     }
 }
