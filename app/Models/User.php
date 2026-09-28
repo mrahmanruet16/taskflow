@@ -47,9 +47,8 @@ class User extends Authenticatable
 
     /**
      * Projects this user is a MEMBER of (via project_user), regardless of
-     * who created them. This is the relation that will back "which
-     * projects can I see" once ProjectPolicy expands past its current
-     * interim "creator only" rule.
+     * who created them. This backs "which projects can I see"
+     * (ProjectController::index) and ProjectPolicy's membership checks.
      */
     public function projects(): BelongsToMany
     {
@@ -58,9 +57,18 @@ class User extends Authenticatable
             ->withTimestamps();
     }
 
+    public function tasksCreated(): HasMany
+    {
+        return $this->hasMany(Task::class, 'created_by');
+    }
+
+    public function assignedTasks(): HasMany
+    {
+        return $this->hasMany(Task::class, 'assigned_to');
+    }
+
     /**
-     * `tasksCreated`, `assignedTasks`, `comments` are added in their
-     * respective phases (Tasks, Comments).
+     * `comments` is added in the Comments phase.
      */
     public function activities(): HasMany
     {

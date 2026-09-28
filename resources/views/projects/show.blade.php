@@ -17,9 +17,36 @@
     </ul>
     <p><a href="{{ route('projects.members.index', $project) }}">Manage Members</a></p>
 
-    <p style="color:#6b7280;font-size:0.9rem;margin-top:1rem;">
-        Tasks will appear here once the Tasks phase is implemented.
-    </p>
+    <h2 style="margin-top:1.5rem;font-size:1.05rem;">Tasks ({{ $project->tasks->count() }})</h2>
+    @can('create', [\App\Models\Task::class, $project])
+        <a class="btn" href="{{ route('tasks.create', $project) }}">Create Task</a>
+    @endcan
+    <table>
+        <thead>
+            <tr>
+                <th>Title</th>
+                <th>Status</th>
+                <th>Priority</th>
+                <th>Assignee</th>
+                <th>Due Date</th>
+            </tr>
+        </thead>
+        <tbody>
+            @forelse ($project->tasks as $task)
+                <tr>
+                    <td><a href="{{ route('tasks.show', $task) }}">{{ $task->title }}</a></td>
+                    <td><span class="badge">{{ $task->status->label() }}</span></td>
+                    <td><span class="badge">{{ $task->priority->label() }}</span></td>
+                    <td>{{ $task->assignee?->name ?? 'Unassigned' }}</td>
+                    <td>{{ $task->due_date?->format('Y-m-d') ?? '—' }}</td>
+                </tr>
+            @empty
+                <tr>
+                    <td colspan="5">No tasks yet.</td>
+                </tr>
+            @endforelse
+        </tbody>
+    </table>
 
     <h2 style="margin-top:1.5rem;font-size:1.05rem;">Activity</h2>
     @forelse ($project->activities as $activity)

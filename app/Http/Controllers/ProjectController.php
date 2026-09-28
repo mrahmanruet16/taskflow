@@ -82,7 +82,11 @@ class ProjectController extends Controller
     {
         Gate::authorize('view', $project);
 
-        $project->load(['members', 'activities.user']);
+        // tasks.assignee: the tasks table on this page prints
+        // $task->assignee?->name per row — without eager-loading through
+        // the tasks relation, that's N additional queries (one per task)
+        // on top of the 1 query for the task list itself.
+        $project->load(['members', 'activities.user', 'tasks.assignee']);
 
         return view('projects.show', ['project' => $project]);
     }

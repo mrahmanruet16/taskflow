@@ -2,17 +2,16 @@
 
 ## Current Phase
 
-Phase: 2 — Implement the learning project (sub-phase 2.3: Project Membership)
-Status: Sub-phases 2.1 (Authentication), 2.2 (Projects CRUD), 2.3 (Project Membership + transactions + activity logs) COMPLETE and VERIFIED. Dashboard real aggregation, Tasks, Comments, hardening, filtering/sorting NOT started.
+Phase: 2 — Implement the learning project (sub-phase 2.4: Tasks)
+Status: Sub-phases 2.1 (Authentication), 2.2 (Projects CRUD), 2.3 (Project Membership), 2.4 (Tasks + filtering/sorting) COMPLETE and VERIFIED. Dashboard real aggregation, Comments, remaining hardening/docs NOT started.
 Last Updated: 2026-09-28
 
 ## Remote
 
-Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Two commits pushed and confirmed:
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Three commits pushed as of the last confirmed push (`2d6eb19`); Phase 2.4 (Tasks, this checkpoint) is NOT YET COMMITTED as of this writing — see NEXT ACTION, and do not trust this line without re-checking `git log`/`git status`:
 - `84a7bd8` — root commit, covers Phases 1 + 2.1 (Authentication) + 2.2 (Projects CRUD)
 - `3c7cb50` — Phase 2.3 (Project Membership, transactions, activity logging)
-
-Confirmed via `git log --oneline -5` and `git push` output (`84a7bd8..3c7cb50  main -> main`) — working tree is clean (`git status --short` empty) as of this checkpoint. A future session should still re-verify with `git log`/`git status` before trusting this note, rather than assuming it stayed accurate if significant time has passed.
+- `2d6eb19` — PROJECT-STATE.md correction after confirming the 2.3 push
 
 ## Project Location
 
@@ -37,10 +36,10 @@ Full detail and compatibility reasoning: `docs/architecture/version-matrix.md`.
 - [x] Phase 2 — Authentication and sessions (sub-phase 2.1, complete)
 - [x] Phase 3 — Projects CRUD (sub-phase 2.2, complete)
 - [x] Phase 4 — Project membership and authorization (sub-phase 2.3, complete — roles: owner/manager/member/viewer, real membership-based ProjectPolicy, transaction-wrapped project creation, activity logging for project/member events)
-- [ ] Phase 5 — Tasks
-- [ ] Phase 6 — Comments and activity logging (activity_logs table + logging infrastructure already exist from 2.3 — this phase is really "extend logging to Task/Comment events," not build it from scratch)
+- [x] Phase 5 — Tasks (sub-phase 2.4, complete — CRUD, TaskPolicy with assignee-can-update-own-task rule, filtering/sorting, activity logging correctly scoped to the Task subject)
+- [~] Phase 6 — Comments and activity logging (activity logging infrastructure now fully proven across Project/Member/Task events; Comments themselves NOT started — this is the one remaining piece of Phase 6)
 - [ ] Phase 7 — Validation, errors, transactions and backend hardening
-- [ ] Phase 8 — Pagination, filtering and sorting
+- [x] Phase 8 — Pagination, filtering and sorting (Projects: pagination since 2.2; Tasks: pagination + status/priority/assignee filtering + due_date/priority/created_at sorting, since 2.4 — matches the spec's exact `?status=&priority=&assignee=` example)
 - [ ] Phase 9 — Tests
 - [ ] Phase 10 — UI/browser verification
 - [ ] Phase 11 — Failure experiments
@@ -236,6 +235,54 @@ Files changed:
 - Added: `docs/architecture/adr/008-database-transactions.md`
 - Added: `docs/backend-concepts/database-relationships.md`
 
+### Phase 2.4 — Tasks (CRUD, filtering/sorting, activity logging)
+Status: Complete, verified (automated tests + manual HTTP verification including a real, measured N+1 demonstration)
+
+Completed:
+1. **`TaskStatus`/`TaskPriority` backed enums** — same pattern as `ProjectStatus`/`ProjectRole`. `TaskPriority::weight()` added specifically to support future numeric priority sorting (a string column sorted alphabetically would put "high" before "low" before "medium" before "urgent," which is meaningless) — not yet wired into the sort query since `ORDER BY priority` on the string column already gives a stable (if not numerically meaningful) order for now; documented as available for when it's needed.
+2. **`tasks` migration**: `project_id` (`cascadeOnDelete()` — a task has no meaning outside its project, unlike `projects.created_by`'s restrict), `assigned_to` (nullable, `nullOnDelete()` — a task can be unassigned, and losing an assignee's account should unassign rather than delete/block), `created_by` (`restrictOnDelete()`, matching `projects.created_by`'s reasoning), `title`, `description`, `status`/`priority` (string, enum-cast), `due_date`. Indexes on `project_id`, `status`, `priority`, `assigned_to` — the latter three exist specifically because the spec requires filtering on all three.
+3. **`Task` model**: `project()`, `creator()`, `assignee()` (nullable — Blade/controller code must null-check, e.g. `$task->assignee?->name`), `activities()`, plus an `isOverdue(): bool` helper (due date in the past AND not completed/cancelled) intended for the Dashboard's "Overdue Tasks" count in a future sub-phase.
+4. **`Project::tasks()` and `User::tasksCreated()`/`assignedTasks()`** added, completing the relationship set from the spec's explicit list.
+5. **`TaskPolicy`**: `view`/`viewAny` — any project member; `create` — Owner/Manager/Member (Viewer excluded — can see everything, can't add new work); `update` — Owner/Manager OR **the task's own assignee** (a deliberate, documented divergence from Project-level rules: the spec's "Change Status" action needs to be available to whoever the task is actually assigned to, not just project leads); `delete` — Owner/Manager only, NOT extended to the assignee (finishing your own work means changing its status, not deleting the record).
+6. **`StoreTaskRequest`/`UpdateTaskRequest`**: validate `assigned_to` via a closure rule checking the target user is actually a member of the task's project — prevents assigning a task to someone who (per `ProjectPolicy`) couldn't even see the project it lives in.
+7. **`TaskController`**: `index()` implements the spec's exact required filtering (`?status=&priority=&assignee=`) and sorting (`?sort=due_date|priority`, default `created_at`) — **sort column is whitelisted via a `match` expression, never string-interpolated into `ORDER BY`**, explicitly documented as the SQL-injection-prevention reason for that choice. `create`/`store` nested under `/projects/{project}/tasks/...`; `show`/`edit`/`update`/`destroy` NOT nested (bare `/tasks/{task}`), matching the spec's exact required screen URL and reflecting that a task is independently addressable once it exists.
+8. **A real bug caught and fixed before it shipped, not after**: initially logged all task lifecycle events (`created`, `status changed`, `assigned`) against the **Project** as the activity subject. Caught during view-writing (not during testing) that `tasks/show.blade.php` reads `$task->activities` — a `morphMany` scoped to `subject_type = Task` — which would have silently rendered empty forever, since no log entry was ever created with that subject type. Fixed by changing task lifecycle events to log against the **Task** itself; task *deletion* specifically stays logged against the Project (the task won't exist afterward to view its own activity).
+9. **Activity log message for status changes matches the spec's exact example format** — verified via manual HTTP test: `"Task Tester changed task ... status from "To Do" to "In Progress"."`, structurally identical to the spec's `"John changed Task #15 status from 'todo' to 'completed'."`
+10. **`ProjectController::show()` updated** to eager-load `tasks.assignee` (documented why: the project detail page's task table prints `$task->assignee?->name` per row — same N+1-avoidance pattern as `with('owner')` in `index()`).
+11. **Project show/nav updated**: "Create Task" button (gated behind `@can('create', [Task::class, $project])`), task list table on the project detail page, "Tasks" link added to the main nav (matching the spec's UI mockup: Dashboard | Projects | Tasks | Logout).
+12. **Tests**: `tests/Feature/TaskTest.php`, 12 tests — guest redirected from `/tasks`; member can create a task (verifies the activity log lands on the Task subject, catching a regression if the bug from item 8 were ever reintroduced); **Viewer role blocked from creating** (403); non-member blocked; **assigning to a non-member is rejected as a validation error**, not a raw DB exception; member can view a task, non-member cannot (403); **assignee can change their own task's status without any management role**; **a different member who is NOT the assignee cannot update the task** (403); **only Owner/Manager, not the assignee alone, can delete**; index correctly filters by status; index correctly scopes to only the current user's project memberships (cross-project isolation, same pattern as the Project tests).
+13. **`docs/backend-concepts/eloquent.md` finally written** (deliberately deferred since Phase 2.2 specifically until Tasks existed) — contains a REAL, MEASURED N+1 demonstration, not a hypothetical: seeded 3 projects with 2 tasks each via `php artisan tinker`, ran `DB::enableQueryLog()` before and after adding `with(['tasks', 'owner'])`, captured the actual SQL and exact query counts (7 queries without eager loading vs. 3 with, flat regardless of row count), then deleted the seed data afterward. The doc includes the literal captured SQL, not paraphrased/invented queries.
+14. **Extensive manual HTTP verification**, same rigor as prior phases: register → create project → **hit the same CSRF 419 red herring pattern a third time**, immediately cross-checked the DB-stored session token against the rendered page token (exact match, confirmed scripting artifact not app bug) before proceeding → create task via `/projects/{id}/tasks` → **DB-verified both the task row AND its Task-subject activity log entry** → view task show page, confirmed title and activity both render → change status via the quick-status form → **DB-confirmed the status actually changed AND the activity log message text matched the spec's exact format** → filtered `/tasks?status=in_progress` (task appears) and `?status=completed` (correctly absent, "No tasks match these filters" shown). Cleaned up: stopped dev server, deleted all manually-created data, confirmed 0 rows across users/projects/tasks/activity_logs in the dev database.
+
+Remaining for full Phase 2: Dashboard real aggregation queries (still a stub — genuinely well-motivated now that Projects/Tasks both exist: Projects/Tasks/Completed/Pending/Overdue counts are all real, meaningful queries at this point), Comments (spec section 6 — the one remaining CRUD entity), further validation/error-handling hardening (custom error pages per spec: 404/403/500), remaining ADRs (001–004, 007), remaining backend-concepts docs (database-indexes.md, transactions.md as a standalone concept doc distinct from ADR 008, pagination.md, error-handling.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md), seeders at spec's required volume (10+ users, 5+ projects, 50+ tasks, 100+ comments — all three factories now exist: User, Project, Task; no CommentFactory yet since Comments isn't built; no seeder invokes any of them at volume yet), failure experiments, final learning report, final assessment.
+
+Verification:
+- `php artisan migrate --pretend` then `--force` (tasks table) → correct SQL, applied cleanly (VERIFIED)
+- `php artisan test --filter=TaskTest` → 12 passed, 29 assertions (VERIFIED)
+- `php artisan test` (full suite) → 46 passed, 111 assertions (VERIFIED)
+- `./vendor/bin/pint --test` → passed, no violations (VERIFIED)
+- Empirical N+1 measurement via `tinker` + `DB::enableQueryLog()` → 7 queries without eager loading, 3 with, for 3 seeded projects × 2 tasks each (VERIFIED, real captured SQL in `docs/backend-concepts/eloquent.md`)
+- Manual curl-based verification: project → task creation → DB-verified task row + Task-subject activity log entry → task show page renders correctly → status change → DB-verified status AND activity message text matches spec's exact format → filtering by status confirmed both directions (present when matching, absent + correct empty-state message when not) (ALL VERIFIED)
+- Dev database cleanup confirmed twice: once after the N+1 measurement seed data, once after the full manual HTTP flow — 0 rows across all tables both times (VERIFIED)
+
+Files changed:
+- Added: `app/Enums/TaskStatus.php`, `app/Enums/TaskPriority.php`
+- Added: `database/migrations/2026_09_28_130206_create_tasks_table.php`
+- Added: `app/Models/Task.php`
+- Modified: `app/Models/Project.php` (added `tasks()`)
+- Modified: `app/Models/User.php` (added `tasksCreated()`, `assignedTasks()`; cleaned up a stale comment on `projects()`)
+- Added: `app/Policies/TaskPolicy.php`
+- Added: `app/Http/Requests/StoreTaskRequest.php`, `UpdateTaskRequest.php`
+- Added: `app/Http/Controllers/TaskController.php`
+- Modified: `app/Http/Controllers/ProjectController.php` (`show()` eager-loads `tasks.assignee`)
+- Modified: `routes/web.php` (added task routes)
+- Added: `resources/views/tasks/index.blade.php`, `create.blade.php`, `edit.blade.php`, `show.blade.php`, `_form.blade.php`
+- Modified: `resources/views/projects/show.blade.php` (task list, Create Task button)
+- Modified: `resources/views/components/layout.blade.php` (added Projects/Tasks nav links)
+- Added: `database/factories/TaskFactory.php`
+- Added: `tests/Feature/TaskTest.php`
+- Added: `docs/backend-concepts/eloquent.md`
+
 ## Important Decisions
 
 1. **Laravel 13 over an older LTS** — chosen because it's the latest stable major and PHP 8.5.11 (the verified machine PHP) is only supported starting Laravel 13 (Laravel 12 tops out at PHP 8.5 too, actually — 12 supports 8.2–8.5 and 13 supports 8.3–8.5 — both would technically work). Went with 13 per the spec's explicit target ("targeting Laravel 13 if it is still the latest stable compatible release"), and it was still latest stable and compatible. No ADR needed yet for this — will be captured implicitly in the general architecture docs during Phase 2, or given its own ADR if a future session judges it warrants one.
@@ -247,12 +294,15 @@ Files changed:
 7. **Switched test suite from SQLite to PostgreSQL, with a dedicated test database** — see ADR 010. Resolved earlier than originally planned (was going to wait until Phase 9) because it became a hard blocker the moment any test tried to touch the database, not just a stylistic preference.
 8. ~~`ProjectPolicy` uses an interim "creator only" rule, not real membership~~ **RESOLVED in Phase 2.3** — `ProjectPolicy` now checks real `project_user` membership/roles via `Project::hasMember()`/`roleOf()`.
 9. **Offset pagination (`paginate()`) over cursor pagination** for all list views — see ADR 009.
-10. **N+1 avoided proactively in `ProjectController::index()`** (`with('owner')`) rather than shipped naively and fixed later — the full before/after N+1 *demonstration* doc (`docs/backend-concepts/eloquent.md`) is still deferred until Tasks exist (richer example with two relations), but the production code itself was written correctly from the start.
+10. ~~N+1 avoided proactively in `ProjectController::index()`~~ **`docs/backend-concepts/eloquent.md` now written (Phase 2.4)** with a real, measured demonstration (7 queries → 3 queries, actual captured SQL, not hypothetical).
 11. **`project_user` uses `cascadeOnDelete()` on both FKs, while `projects.created_by` uses `restrictOnDelete()`** — a deliberate, documented divergence: membership rows have no independent meaning once either side is gone, but project ownership records should never silently vanish. See the migration's inline comments and `docs/backend-concepts/database-relationships.md`.
 12. **`activity_logs.user_id` uses `nullOnDelete()`, not cascade or restrict** — an audit trail should survive the actor's account being deleted (the log entry stays, just with a null user reference) rather than being deleted itself or blocking account deletion.
 13. **Transaction for project creation deferred from Phase 2.2 to 2.3, implemented once `project_user`/`activity_logs` existed** — rather than either skipping it or awkwardly pre-creating those tables early. See ADR 008.
 14. **Last-owner-removal guard implemented as a controller-level business rule, not a Form Request validation rule** — because it depends on querying the state of OTHER membership rows (how many Owners currently exist), not just the shape of the current request. Matches the validation-vs-business-rule distinction in `docs/backend-concepts/validation.md`.
 15. **`ProjectFactory` updated to auto-attach creator as Owner via `afterCreating`** — after discovering this was a real, necessary fix (not a nice-to-have) once `ProjectPolicy` became membership-based; framed as "factories should produce the same valid invariant the real transaction guarantees," not a test-only hack.
+16. **Task lifecycle activity logged against the Task subject; task deletion logged against the Project subject** — a deliberate split, not an inconsistency: a deleted task can no longer be viewed, so its "deletion" event is the one task-related activity that belongs on the still-viewable project instead. Caught and fixed a bug where this was initially reversed (see Phase 2.4 item 8).
+17. **`TaskPolicy::update()` extends update rights to the task's own assignee, not just Owner/Manager** — a deliberate divergence from `ProjectPolicy`'s "only management roles" pattern, because the spec's "Change Status" action needs to work for whoever the task is actually assigned to.
+18. **Sort column whitelisted via `match` in `TaskController::index()`, never string-interpolated into `ORDER BY`** — a concrete SQL-injection-prevention decision, not just a style choice; documented inline in the controller.
 
 ## Known Issues
 
@@ -341,22 +391,39 @@ Manual curl verification (two real user sessions, owner.jar + member.jar):
   DELETE /projects/{id} as Manager   → 403 (Owner-only delete rule enforced)
   DELETE /projects/{id}/members/{ownerId} as Owner (removing the LAST owner)   → 302 redirect-with-error; psql confirms owner's project_user row WAS NOT removed; re-fetched page and captured exact flashed message "Cannot remove the last owner of a project."
   cleanup: killed dev server, DELETE FROM project_user/activity_logs/projects/users WHERE ...   → confirmed 0/0/0/0 rows remain in dev database
+
+--- Phase 2.4 (Tasks) ---
+php artisan migrate --pretend / --force (tasks table)   → correct SQL, applied cleanly
+php artisan test --filter=TaskTest   → 12 passed, 29 assertions
+php artisan test (full suite)   → 46 passed, 111 assertions
+./vendor/bin/pint --test   → passed, no violations
+Empirical N+1 measurement (tinker, DB::enableQueryLog(), 3 seeded projects × 2 tasks each):
+  WITHOUT with(['tasks','owner'])   → 7 queries (1 + 3×2), captured actual SQL for each
+  WITH with(['tasks','owner'])      → 3 queries (1 + 1 + 1), captured actual SQL for each
+  cleanup: DELETE FROM tasks/project_user/projects/users   → confirmed 0 rows remain
+Manual curl verification (single user session):
+  register + create project   → 302 / 302 (hit the same CSRF-419 scripting artifact a third time; cross-checked DB session token vs rendered token — exact match — before re-submitting with a freshly split command, confirmed app-level correctness each time)
+  create task via /projects/{id}/tasks   → 302; psql confirms task row AND activity_logs row with subject_type='App\Models\Task' (confirms the Phase 2.4 item-8 bug fix actually took effect)
+  GET /tasks/1   → 200; page shows task title AND the "created task" activity entry
+  PUT /tasks/1 status change (todo → in_progress)   → 302; psql confirms status changed AND activity log message text: 'Task Tester changed task "..." status from "To Do" to "In Progress".' — matches spec's example format
+  GET /tasks?status=in_progress   → task appears; GET /tasks?status=completed   → task correctly absent, "No tasks match these filters" shown
+  cleanup: killed dev server, DELETE FROM activity_logs/tasks/project_user/projects/users   → confirmed 0/0/0/0 rows remain in dev database
 ```
 
 ## Current Blocker
 
-None. Phase 2.3 (Project Membership) is complete and verified, pending only the commit/push described in NEXT ACTION step 1.
+None. Phase 2.4 (Tasks) is complete and verified, pending only the commit/push described in NEXT ACTION step 1.
 
 ## NEXT ACTION
 
-1. **Immediate**: commit this Phase 2.3 work (Membership, transactions, activity logging — everything listed under "Files changed" in the Phase 2.3 section above) and `git push origin main`. Follow the same review discipline used for the first commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing, confirm `git push` actually succeeds (check for `[new branch]`/`main -> main` or equivalent in the output — don't assume success without reading it). **A future session must verify via `git log` / `git status` whether this push actually happened** — do not trust this file's claim alone if it looks stale (e.g. if `Last Updated` above is more than a session old and no confirming git output is visible in the conversation).
-2. Recommended next sub-phase after committing: **Tasks** (spec section 5) — now fully unblocked:
-   - Migration: `tasks` table (id, project_id FK cascadeOnDelete, assigned_to FK to users nullable, created_by FK, title, description, status enum: todo/in_progress/completed/cancelled, priority enum: low/medium/high/urgent, due_date, timestamps). Index reasoning to document: project_id (every task list is scoped to a project), status/priority/assigned_to (spec explicitly requires filtering by all three).
-   - `Task` model + `TaskStatus`/`TaskPriority` enums (same backed-enum pattern as `ProjectStatus`/`ProjectRole`).
-   - `TaskPolicy` — likely "any project member can view tasks; Owner/Manager/assignee can update; Owner/Manager can delete" — needs a real decision, not just copy-pasted from ProjectPolicy.
-   - `StoreTaskRequest`/`UpdateTaskRequest`, `TaskController`, views including the required `/tasks/{id}` screen.
-   - **This is the natural point to finally write `docs/backend-concepts/eloquent.md` with a real N+1 demonstration** — `Project::all()` then accessing `->tasks` per-project (N+1) vs `Project::with('tasks')->get()` (fixed), now that Tasks actually exist to demonstrate this with.
-   - Filtering/sorting via query params (`?status=&priority=&assignee=`, `?sort=due_date`) — the spec's explicit requirement, not yet implemented anywhere in the app (Projects only has pagination, not filtering).
-   - Extend activity logging to Task events (created/updated/assigned/status changed) — infrastructure already exists, just add more `ActivityLog::create()` call sites following the same pattern as Project/Member events.
-   - Dashboard's real aggregation queries become meaningful once Tasks exist (Projects/Tasks/Completed/Pending/Overdue counts) — do this either right before or right after Tasks CRUD.
-3. Still pending, no change in scope since last checkpoint beyond what Phase 2.3 added: ADRs 001–004, 007 (005/006/008/009/010 now exist), most `docs/backend-concepts/*.md` files (eloquent.md, database-indexes.md, transactions.md-as-standalone-concept, pagination.md, error-handling.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md), all Tasks/Comments code, one remaining required screen (`/tasks/{id}`), seeders at spec's required volume (10+ users, 5+ projects, 50+ tasks, 100+ comments — factories exist for User/Project but no seeder invokes them at volume yet, and no TaskFactory/CommentFactory exist yet), failure experiments, final learning report, final assessment.
+1. **Immediate**: commit this Phase 2.4 work (Tasks CRUD, filtering/sorting, eloquent.md — everything listed under "Files changed" in the Phase 2.4 section above) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing, confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed.
+2. Recommended next sub-phase: **Comments** (spec section 6) — the one remaining CRUD entity:
+   - Migration: `comments` table (id, task_id FK cascadeOnDelete, user_id FK, body/content, timestamps). No obvious extra indexes beyond `task_id` (every comment query is scoped to a task) — don't add speculative indexes per the project's "every non-obvious index must have a reason" rule.
+   - `Comment` model: `task()` belongsTo, `user()` belongsTo. Add `Task::comments()` hasMany, `User::comments()` hasMany.
+   - `CommentPolicy`: spec is explicit — "Users can edit their own comments" / "delete their own comment." Any project member can view/create comments on a task they can already view; only the comment's own author can edit/delete it (NOT extended to Owner/Manager, unlike Tasks — this is a deliberate, different rule worth its own documented reasoning, matching the pattern of explaining WHY each policy differs rather than copy-pasting).
+   - `StoreCommentRequest` (body required), no separate update request needed if editing reuses the same validation.
+   - `CommentController`: likely just `store`/`update`/`destroy` — no dedicated `index`/`show`/`create`/`edit` screens per the spec (comments render inline on the task show page, not as their own routes/pages).
+   - Activity logging: "Comment created" / "Comment deleted" per the spec's explicit list — log against the Task subject (matching where Task lifecycle events already log, so a task's activity feed shows one unified history of everything that happened to it, comments included).
+   - Update `resources/views/tasks/show.blade.php`'s "Comments will appear here..." placeholder with the real comment list + add-comment form.
+3. After Comments: Dashboard real aggregation queries (Projects/Tasks/Completed/Pending/Overdue counts — genuinely meaningful now, all the underlying data exists), then remaining hardening (custom 404/403/500 error pages, per spec), then the remaining ADRs/docs, seeders at volume, failure experiments, final learning report, final assessment.
+4. Still pending, no change in scope since last checkpoint beyond what Phase 2.4 added: ADRs 001–004, 007 (005/006/008/009/010 now exist), remaining `docs/backend-concepts/*.md` files (database-indexes.md, transactions.md-as-standalone-concept, pagination.md, error-handling.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md), all Comments code, seeders at spec's required volume (User/Project/Task factories all exist now; no CommentFactory yet since Comments isn't built; no seeder invokes any factory at the spec's required volume yet — this is still fully outstanding), failure experiments, final learning report, final assessment.

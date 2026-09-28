@@ -33,6 +33,8 @@
         <span class="brand">TaskFlow</span>
         @auth
             <a href="{{ route('dashboard') }}">Dashboard</a>
+            <a href="{{ route('projects.index') }}">Projects</a>
+            <a href="{{ route('tasks.index') }}">Tasks</a>
             <form method="POST" action="{{ route('logout') }}">
                 @csrf
                 <button type="submit">Logout ({{ auth()->user()->name }})</button>
