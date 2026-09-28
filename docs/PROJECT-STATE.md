@@ -2,21 +2,20 @@
 
 ## Current Phase
 
-Phase: 2 — Implement the learning project (sub-phase 2.5: Comments)
-Status: Sub-phases 2.1 (Authentication), 2.2 (Projects CRUD), 2.3 (Project Membership), 2.4 (Tasks), 2.5 (Comments) COMPLETE and VERIFIED. All spec CRUD entities now exist. Dashboard real aggregation, hardening (error pages), remaining ADRs/docs, seeders at volume, failure experiments, final report/assessment NOT started.
+Phase: 2 — Implement the learning project (sub-phase 2.6: Dashboard aggregation)
+Status: Sub-phases 2.1–2.6 (Authentication, Projects, Membership, Tasks, Comments, Dashboard) COMPLETE and VERIFIED. All spec CRUD entities and the Dashboard now exist with real data. Hardening (error pages), remaining ADRs/docs, seeders at volume, failure experiments, final report/assessment NOT started.
 Last Updated: 2026-09-28
 
 ## Remote
 
-Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Six commits pushed and confirmed (`git push` output showed `0f08e98..43f984e  main -> main`):
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Seven commits pushed as of the last confirmed push (`2868c3d`); Phase 2.6 (Dashboard, this checkpoint) is NOT YET COMMITTED as of this writing — see NEXT ACTION, and do not trust this line without re-checking `git log`/`git status`:
 - `84a7bd8` — root commit, covers Phases 1 + 2.1 (Authentication) + 2.2 (Projects CRUD)
 - `3c7cb50` — Phase 2.3 (Project Membership, transactions, activity logging)
 - `2d6eb19` — PROJECT-STATE.md correction after confirming the 2.3 push
 - `940446b` — Phase 2.4 (Tasks, filtering/sorting, eloquent.md)
 - `0f08e98` — PROJECT-STATE.md correction after confirming the 2.4 push
 - `43f984e` — Phase 2.5 (Comments)
-
-Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
+- `2868c3d` — PROJECT-STATE.md correction after confirming the 2.5 push
 
 ## Project Location
 
@@ -45,6 +44,7 @@ Full detail and compatibility reasoning: `docs/architecture/version-matrix.md`.
 - [x] Phase 6 — Comments and activity logging (sub-phase 2.5, complete — CommentPolicy deliberately author-only for edit/delete, no Owner/Manager override, verified even against a project Manager over real HTTP; "Comment created"/"Comment deleted" activity logged, matching spec's exact event list, no "Comment edited" logging since spec doesn't list it)
 - [ ] Phase 7 — Validation, errors, transactions and backend hardening
 - [x] Phase 8 — Pagination, filtering and sorting (Projects: pagination since 2.2; Tasks: pagination + status/priority/assignee filtering + due_date/priority/created_at sorting, since 2.4 — matches the spec's exact `?status=&priority=&assignee=` example)
+- [x] Dashboard (spec section 2, not separately numbered in this template) — sub-phase 2.6, complete: real aggregate COUNT() queries (Projects/Tasks/Completed/Pending/Overdue), verified as 5 flat queries regardless of task volume (measured via tinker, same rigor as the eloquent.md N+1 demonstration), verified correct over real HTTP including the completed-but-overdue-due-date edge case (must NOT count as overdue)
 - [ ] Phase 9 — Tests
 - [ ] Phase 10 — UI/browser verification
 - [ ] Phase 11 — Failure experiments
@@ -328,6 +328,33 @@ Files changed:
 - Added: `database/factories/CommentFactory.php`
 - Added: `tests/Feature/CommentTest.php`
 
+### Phase 2.6 — Dashboard (real aggregation queries)
+Status: Complete, verified (automated tests with an edge-case assertion + measured query-count verification + manual HTTP verification)
+
+Completed:
+1. **`DashboardController::index()` rewritten** from the Phase 2.1 stub to 5 real aggregate queries, all scoped to `Auth::user()->projects()` (membership, matching every other list view in the app): Projects (count of member project IDs), Tasks (count across those projects), Completed, Pending (`whereNotIn('status', [Completed, Cancelled])` — explicitly NOT just "not completed," since a cancelled task isn't meaningfully "pending" either), Overdue (`due_date < now() AND status NOT IN (Completed, Cancelled)` — the same logic as `Task::isOverdue()` from Phase 2.4, expressed as a query rather than a per-row PHP check since this needs to be a COUNT, not a loaded collection).
+2. **Explicit `clone` before each count()**, with a documented reason: reusing the same query builder instance across multiple `->where(...)->count()` calls would accumulate `WHERE` clauses onto one query instead of running independent ones — a real, non-obvious Eloquent gotcha worth the comment.
+3. **Deliberately used `count()` SQL aggregates, not `Collection::count()` on loaded models** — the dashboard loads on every login, making it exactly the page where an accidental "load everything, then count in PHP" pattern would be most costly at scale. Documented as a variant of the N+1 avoidance principle from `docs/backend-concepts/eloquent.md`.
+4. **`resources/views/dashboard/index.blade.php` rewritten** with the 5 stat cards matching the spec's exact required list (Projects / Tasks / Completed Tasks / Pending Tasks / Overdue Tasks) plus the already-present current-user display.
+5. **Tests**: `tests/Feature/DashboardTest.php`, 2 tests. The first asserts exact counts against `$response->viewData(null)` (the actual PHP data passed to the view) rather than fragile HTML string matching — a first draft of this test used `assertSee('1</div>')`-style assertions and was caught and rejected during writing as unreliable, since multiple legitimately-different stats could coincidentally share the same numeric value and match the same substring; rewritten to assert on precise typed data instead. This test specifically includes a deliberate edge case: a task with a past `due_date` but `status = Completed` — asserts it does NOT count as overdue, proving the "AND status NOT IN (...)" clause actually does its job rather than just checking date. The second test confirms membership-scoping (a task in a project the user is NOT a member of must not be counted), mirroring the same cross-project-isolation check used throughout the Task/Project test suites.
+6. **Measured, not assumed, query efficiency**: seeded 20 tasks via `tinker`, ran `DB::enableQueryLog()` around a direct `DashboardController::index()` call, confirmed exactly 5 real dashboard queries (1 project-ID lookup + 4 `COUNT(*)` aggregates) — flat regardless of task volume, same empirical rigor as the `eloquent.md` N+1 demonstration. Captured and reviewed the actual SQL (all 4 count queries correctly filter on `project_id IN (...)`, using the same index from the Phase 2.4 `tasks` migration). Cleaned up the seed data afterward.
+7. **Manual HTTP verification with two data states**: checked the dashboard immediately after registration (0 projects, 0 tasks, all 5 stats correctly showing 0) — this matters because an aggregate query bug involving an empty membership set (e.g. `WHERE project_id IN ()`, which is invalid SQL in some contexts) would only surface with zero data, not with data present. Then created 1 project + 1 overdue task + 1 completed task via real HTTP requests and confirmed the dashboard updated to the exact expected counts (1/2/1/1/1 — note the overdue task correctly counts toward BOTH "Pending" and "Overdue," since an incomplete overdue task is still pending work, not a separate mutually-exclusive category). Cleaned up afterward: stopped dev server, deleted all manually-created data, confirmed 0 rows remain.
+
+Remaining for full Phase 2: backend hardening (custom `404`/`403`/`500` error pages per spec — Laravel's default pages are still in use; the spec also asks to verify no stack traces leak when `APP_DEBUG=false`, not yet explicitly checked), remaining ADRs (001–004, 007 — the general-architecture ones deferred since Phase 1/2 as "implicit," never actually written), remaining backend-concepts docs (database-indexes.md, transactions.md-as-standalone-concept, pagination.md, error-handling.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md), seeders at the spec's required volume with named demo accounts (admin@example.test / manager@example.test / member@example.test / viewer@example.test), failure experiments (5 numbered experiments per spec), final learning report, final backend assessment.
+
+Verification:
+- `php artisan test --filter=DashboardTest` → 2 passed, 8 assertions (VERIFIED, including the completed-but-overdue-date edge case)
+- `php artisan test` (full suite) → 57 passed, 141 assertions (VERIFIED)
+- `./vendor/bin/pint --test` → passed, no violations (VERIFIED)
+- Empirical query-count measurement (tinker, 20 seeded tasks) → exactly 5 dashboard queries, captured and reviewed actual SQL, confirmed flat regardless of task volume (VERIFIED)
+- Manual curl-based verification: fresh user shows all-zero dashboard (0/0/0/0/0) → after creating 1 project + 2 tasks (1 overdue, 1 completed), dashboard correctly shows 1/2/1/1/1 (VERIFIED)
+- Dev database cleanup confirmed twice (once after the tinker measurement, once after the manual HTTP flow) — 0 rows across all tables both times (VERIFIED)
+
+Files changed:
+- Modified: `app/Http/Controllers/DashboardController.php` (real aggregation queries, replacing the Phase 2.1 stub)
+- Modified: `resources/views/dashboard/index.blade.php` (5 stat cards, replacing placeholder text)
+- Added: `tests/Feature/DashboardTest.php`
+
 ## Important Decisions
 
 1. **Laravel 13 over an older LTS** — chosen because it's the latest stable major and PHP 8.5.11 (the verified machine PHP) is only supported starting Laravel 13 (Laravel 12 tops out at PHP 8.5 too, actually — 12 supports 8.2–8.5 and 13 supports 8.3–8.5 — both would technically work). Went with 13 per the spec's explicit target ("targeting Laravel 13 if it is still the latest stable compatible release"), and it was still latest stable and compatible. No ADR needed yet for this — will be captured implicitly in the general architecture docs during Phase 2, or given its own ADR if a future session judges it warrants one.
@@ -351,6 +378,9 @@ Files changed:
 19. **`CommentPolicy` is author-only for update/delete, with NO Owner/Manager override** — the one policy in this app that deliberately does NOT follow the "management roles can act on anything in the project" pattern used everywhere else. Matches the spec's literal wording, verified over real HTTP against a project Manager specifically because this was the rule most likely to have a copy-paste bug from `TaskPolicy`.
 20. **`Comment::user()` is nullable**, matching `comments.user_id`'s `nullOnDelete()` — discussion content survives the author's account being deleted; Blade renders `$comment->user?->name ?? 'Deleted user'`.
 21. **`Task::comments()` orders oldest-first; `Task::activities()` orders newest-first** — different content types, different natural reading order (conversation vs. reverse-chronological log), documented explicitly as intentional in the model's code comments.
+22. **Dashboard "Pending Tasks" defined as `NOT IN (Completed, Cancelled)`, not just `!= Completed`** — a cancelled task is neither pending work nor completed work; treating it as "pending" would inflate that count with tasks nobody is going to act on.
+23. **"Pending" and "Overdue" are not mutually exclusive counts** — an overdue task is still incomplete/pending work, so it correctly increments both counters. Verified explicitly via manual HTTP test (a task with a past due_date and `todo` status counted toward both).
+24. **`DashboardTest` rewritten mid-writing after catching its own flaw**: an initial draft used `assertSee('1</div>')`-style HTML substring matching, then was recognized as unreliable (multiple distinct stats could share the same numeric value and false-positive match) before being kept — rewritten to assert on `$response->viewData(null)` instead, asserting the actual typed PHP values passed to the view.
 
 ## Known Issues
 
@@ -470,18 +500,31 @@ Manual curl verification (two real user sessions — author + a project Manager)
   Manager DELETE /comments/{id}   → 403 (same)
   Author GET /comments/{id}/edit   → 200; Author PUT /comments/{id}   → 302; psql confirms body actually changed
   cleanup: killed dev server, DELETE FROM comments/activity_logs/tasks/project_user/projects/users   → confirmed 0/0/0/0/0 rows remain in dev database
+
+--- Phase 2.6 (Dashboard) ---
+php artisan test --filter=DashboardTest   → 2 passed, 8 assertions
+php artisan test (full suite)   → 57 passed, 141 assertions
+./vendor/bin/pint --test   → passed, no violations
+Empirical query-count measurement (tinker, 20 seeded tasks, direct DashboardController::index() call):
+  → exactly 5 queries: 1 project-ID lookup + 4 COUNT(*) aggregates, captured and reviewed actual SQL
+  cleanup: DELETE FROM tasks/project_user/projects/users   → confirmed 0 rows remain
+Manual curl verification (single user session):
+  register (no data yet)   → GET /dashboard shows 0/0/0/0/0 (verifies the empty-membership-set edge case doesn't break the aggregate queries)
+  create 1 project + 1 overdue task (todo, due_date in the past) + 1 completed task   → all 302
+  GET /dashboard   → 1/2/1/1/1 (projects/tasks/completed/pending/overdue) — exact match to hand-computed expectation, including the overdue task correctly counting toward BOTH pending and overdue
+  cleanup: killed dev server, DELETE FROM tasks/project_user/projects/users WHERE ...   → confirmed 0/0/0 rows remain in dev database
 ```
 
 ## Current Blocker
 
-None. Phase 2.5 (Comments) is complete and verified, pending only the commit/push described in NEXT ACTION step 1. All four spec CRUD entities (Projects, Membership, Tasks, Comments) now exist and are fully tested/verified.
+None. Phase 2.6 (Dashboard) is complete and verified, pending only the commit/push described in NEXT ACTION step 1. Every functional-requirements section of the spec (Authentication, Dashboard, Projects, Membership, Tasks, Comments, Activity Logs) now has a real, working, tested implementation.
 
 ## NEXT ACTION
 
-1. **Immediate**: commit this Phase 2.5 work (Comments — everything listed under "Files changed" in the Phase 2.5 section above) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing, confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed.
-2. Recommended next sub-phase: **Dashboard real aggregation queries** (spec section 2) — now genuinely meaningful, all underlying data exists:
-   - Replace `DashboardController`'s stub with real counts: total projects (via `Auth::user()->projects()->count()`), total tasks across those projects, completed tasks, pending tasks (not completed/cancelled), overdue tasks (use the already-written `Task::isOverdue()` helper from Phase 2.4 — it exists specifically for this).
-   - Watch for N+1 here deliberately — this is the dashboard, loaded on every login, exactly the kind of page where an accidental N+1 would be most costly. Use aggregate queries (`count()`, `where()`) rather than loading full collections just to count them.
-   - Update `resources/views/dashboard/index.blade.php` to display the counts per the spec's exact list: Projects / Tasks / Completed Tasks / Pending Tasks / Overdue Tasks / current authenticated user.
-3. After the Dashboard: backend hardening — custom `resources/views/errors/404.blade.php`/`403.blade.php`/`500.blade.php` (Laravel's default error pages are still in use; spec explicitly asks for custom ones and to not expose stack traces in production-mode responses — verify `APP_DEBUG` behavior specifically). Then remaining ADRs (001–004 — these were deferred as "implicit" early on; worth deciding whether to write them now or explicitly skip with reasoning), remaining backend-concepts docs (database-indexes.md, transactions.md-as-standalone-concept, pagination.md, error-handling.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md), seeders at the spec's required volume (all four factories exist now — User/Project/Task/Comment — write a `DatabaseSeeder` that actually invokes them at 10+ users/5+ projects/50+ tasks/100+ comments, plus the spec's named demo accounts: admin@example.test / manager@example.test / member@example.test / viewer@example.test), failure experiments (the spec's 5 numbered experiments — deliberately breaking auth/validation/transactions/N+1/constraints and documenting what happens), final learning report, final backend assessment.
-4. Still pending, no change in scope since last checkpoint beyond what Phase 2.5 added: ADRs 001–004, 007, remaining backend-concepts docs (listed above), seeders/demo accounts, failure experiments, final learning report, final assessment. This is now genuinely "everything left" — all core CRUD functionality from the spec is built and tested; what remains is the Dashboard, hardening, documentation completion, and the teaching/assessment deliverables.
+1. **Immediate**: commit this Phase 2.6 work (Dashboard — everything listed under "Files changed" in the Phase 2.6 section above) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing, confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed.
+2. Recommended next sub-phase: **Backend hardening — error pages** (spec's Error Handling section):
+   - `resources/views/errors/404.blade.php`, `403.blade.php`, `500.blade.php` — Laravel automatically uses these if present (no registration needed), matching the `x-layout` component style already used throughout the app for visual consistency.
+   - Explicitly verify (not assume) that `APP_DEBUG=false` suppresses stack traces — test by temporarily setting it in `.env`, triggering a 500 (e.g. a deliberately broken route), confirming the response is generic, then reverting `.env`. This is a concrete verification opportunity the spec asks for by name ("Do not expose stack traces... to normal users in production mode").
+   - This naturally sets up Failure Experiment content later (removing a policy check → observing raw vs. custom error pages).
+3. Then, in roughly this order: remaining ADRs (001 Laravel monolith, 002 PostgreSQL, 003 Blade server-rendered UI, 004 Eloquent ORM — these were treated as "implicit" from Phase 1 onward and never actually written; decide whether to backfill them now with real reasoning or explicitly document why they were skipped), remaining backend-concepts docs (database-indexes.md, transactions.md as a standalone concept doc distinct from ADR 008, pagination.md, error-handling.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md), a real `DatabaseSeeder` invoking all four factories (User/Project/Task/Comment) at the spec's required volume (10+ users, 5+ projects, 50+ tasks, 100+ comments) plus the spec's named demo accounts (admin@example.test / manager@example.test / member@example.test / viewer@example.test, with documented demo passwords), the 5 numbered failure experiments from the spec (deliberately break auth/validation/transactions/N+1/DB-constraints and document what happens — most of the underlying mechanics to break are already built and testable), `docs/testing/manual-verification.md` (a consolidated checklist — much of its content already exists scattered across this file's manual-verification notes per phase and could be extracted/reorganized rather than written from scratch), final learning report, final backend assessment (the ~20 questions).
+4. Nothing scope-wise has changed beyond what Phase 2.6 added — this really is the tail of the project now: hardening, documentation completion, and the teaching/assessment deliverables the spec asks for at the end.
