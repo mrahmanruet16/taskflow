@@ -8,13 +8,17 @@ Last Updated: 2026-09-28
 
 ## Remote
 
-Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Seven commits pushed as of the last confirmed push (`2868c3d`); Phase 2.6 (Dashboard, this checkpoint) is NOT YET COMMITTED as of this writing — see NEXT ACTION, and do not trust this line without re-checking `git log`/`git status`:
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Eight commits pushed and confirmed (`git push` output showed `2868c3d..7de4bd0  main -> main`):
 - `84a7bd8` — root commit, covers Phases 1 + 2.1 (Authentication) + 2.2 (Projects CRUD)
 - `3c7cb50` — Phase 2.3 (Project Membership, transactions, activity logging)
 - `2d6eb19` — PROJECT-STATE.md correction after confirming the 2.3 push
 - `940446b` — Phase 2.4 (Tasks, filtering/sorting, eloquent.md)
 - `0f08e98` — PROJECT-STATE.md correction after confirming the 2.4 push
 - `43f984e` — Phase 2.5 (Comments)
+- `2868c3d` — PROJECT-STATE.md correction after confirming the 2.5 push
+- `7de4bd0` — Phase 2.6 (Dashboard real aggregation)
+
+Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
 - `2868c3d` — PROJECT-STATE.md correction after confirming the 2.5 push
 
 ## Project Location
