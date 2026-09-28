@@ -8,7 +8,7 @@ Last Updated: 2026-09-28
 
 ## Remote
 
-Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Eleven commits pushed as of the last confirmed push (`fa43d79`); Phase 2.8 (foundational ADRs, this checkpoint) is NOT YET COMMITTED as of this writing — see NEXT ACTION, and do not trust this line without re-checking `git log`/`git status`:
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Twelve commits pushed and confirmed (`git push` output showed `fa43d79..c68bcd4  main -> main`):
 - `84a7bd8` — root commit, covers Phases 1 + 2.1 (Authentication) + 2.2 (Projects CRUD)
 - `3c7cb50` — Phase 2.3 (Project Membership, transactions, activity logging)
 - `2d6eb19` — PROJECT-STATE.md correction after confirming the 2.3 push
@@ -20,6 +20,9 @@ Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Eleven com
 - `0c20e87` — PROJECT-STATE.md correction after confirming the 2.6 push
 - `53268e4` — Phase 2.7 (error pages, APP_DEBUG verification)
 - `fa43d79` — PROJECT-STATE.md correction after confirming the 2.7 push (also fixed a stray duplicate line)
+- `c68bcd4` — Phase 2.8 (foundational ADRs 001–004, 007)
+
+Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
 
 Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
 
