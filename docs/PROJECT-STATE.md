@@ -2,13 +2,13 @@
 
 ## Current Phase
 
-Phase: 2 — Implement the learning project (sub-phase 2.12: Manual-verification checklist)
-Status: Sub-phases 2.1–2.12 COMPLETE and VERIFIED. Consolidated manual-verification checklist written AND actually walked through end-to-end over real HTTP, catching and fixing one real checklist bug in the process. Only the final learning report and final backend assessment remain.
+Phase: 2 — Implement the learning project (sub-phase 2.13: Final learning report)
+Status: Sub-phases 2.1–2.13 COMPLETE and VERIFIED. `docs/FINAL-LEARNING-REPORT.md` written, covering all 21 spec-required concepts (20 implemented + Docker addressed as a deliberate non-use). Only the final backend assessment remains — the very last deliverable in the entire project.
 Last Updated: 2026-09-29
 
 ## Remote
 
-Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Twenty commits pushed and confirmed (`git push` output showed `409f046..65f9fbe  main -> main`):
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Twenty-one commits pushed as of the last confirmed push (`a163179`); Phase 2.13 (this checkpoint) is NOT YET COMMITTED as of this writing — see NEXT ACTION, and do not trust this line without re-checking `git log`/`git status`:
 - `84a7bd8` — root commit, covers Phases 1 + 2.1 (Authentication) + 2.2 (Projects CRUD)
 - `3c7cb50` — Phase 2.3 (Project Membership, transactions, activity logging)
 - `2d6eb19` — PROJECT-STATE.md correction after confirming the 2.3 push
@@ -29,6 +29,7 @@ Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Twenty com
 - `5e6c186` — Phase 2.11 (5 failure experiments, all reverted with verified-clean diffs)
 - `409f046` — PROJECT-STATE.md correction after confirming the 2.11 push
 - `65f9fbe` — Phase 2.12 (manual-verification checklist, walked through end-to-end, caught its own bug)
+- `a163179` — PROJECT-STATE.md correction after confirming the 2.12 push
 
 Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
 
@@ -73,7 +74,7 @@ Full detail and compatibility reasoning: `docs/architecture/version-matrix.md`.
 - [x] Phase 10 — UI/browser verification (sub-phase 2.12, complete — `docs/testing/manual-verification.md` written AND actually walked through end-to-end over real HTTP as one continuous session, not just written from memory; caught and fixed a real bug in the checklist itself — an earlier draft conflated "not a project member at all" with "a member with a restricted role" for the Viewer cross-role check)
 - [x] Phase 11 — Failure experiments (sub-phase 2.11, complete — all 5 performed against real running code/data, real captured evidence, all cleanly reverted and verified: `git diff` empty after code-level experiments, schema byte-for-byte identical after the constraint experiment, full test suite green after each)
 - [x] Phase 12 — Documentation and ADR completion (ADRs: all 10 spec-required ADRs exist, sub-phase 2.8. Backend-concepts docs: all 14 spec-required docs now exist, sub-phase 2.9 — including `docs/architecture/request-lifecycle.md`, discovered missing and written this same sub-phase after finding 4 other docs falsely referenced it as "already documented." Remaining: `docs/architecture/system-overview.md`, `database-design.md`, `architecture-decisions.md`, `docs/database/database-design.md`, `docs/security/security-model.md`, `docs/testing/testing-strategy.md` are named in the spec's file-tree diagram but not the explicit required-list prose — treated as lower priority than the explicitly-named docs, not yet written)
-- [ ] Phase 13 — Final learning report
+- [x] Phase 13 — Final learning report (sub-phase 2.13, complete — `docs/FINAL-LEARNING-REPORT.md`, all 21 spec-listed concepts covered with real file references, one common mistake, and one interview-style question each; every referenced doc-file cross-checked to actually exist before finalizing, same discipline as the Phase 2.9 request-lifecycle.md discovery)
 - [ ] Phase 14 — Final backend assessment
 
 Note: the numbering above follows the PROJECT-STATE template given in the session instructions. The original spec's "Phase 1 (bootstrap) / Phase 2 (everything else)" two-phase split maps onto this as: template-Phase-1 = spec-Phase-1 (done, this checkpoint); template-Phases 2–14 = spec-Phase-2, to be worked incrementally per the "small verifiable increments" session discipline rule.
@@ -546,6 +547,26 @@ Verification:
 Files changed:
 - Added: `docs/testing/manual-verification.md`
 
+### Phase 2.13 — Final Learning Report
+Status: Complete, verified (every referenced doc-file cross-checked to actually exist before finalizing)
+
+Completed:
+1. **Wrote `docs/FINAL-LEARNING-REPORT.md`** covering all 21 items from the spec's exact required checklist (HTTP, REST, Routing, Middleware, Controllers, Dependency Injection, Request Validation, Authentication, Sessions, Authorization, Policies, Eloquent, Relationships, SQL, PostgreSQL, Indexes, Transactions, Pagination, Error Handling, Logging, Testing, Docker) — each with: where it appears in this actual project, relevant files, what to understand, one common mistake, one interview-style question, exactly matching the spec's required format.
+2. **Every entry references real, existing files and real, previously-verified findings from this project** — not generic textbook explanations. Several entries specifically cite the concrete evidence gathered during the failure experiments (Phase 2.11): the Transactions entry describes the exact project-lockout consequence from Experiment 3; the Authorization entry cites Experiment 1's member-name leak; the PostgreSQL entry cites Experiment 5's orphaned-row demonstration; the Error Handling entry cites the exact 6-times-vs-0-times measurement from Phase 2.7.
+3. **Docker addressed honestly as a deliberate non-use, not skipped or hand-waved** — explains what it would have provided (environment portability), why it wasn't needed here (the machine already had a correctly-provisioned native PostgreSQL, per Phase 1's verification and ADR 002), and gives a concrete interview-style question about when the decision WOULD flip (a second developer joining with a different OS, or needing CI/production environment parity).
+4. **One entry explicitly names a known gap rather than pretending it's covered**: the Transactions section notes that this project's single `DB::transaction()` protects atomicity of one user's multi-step operation, but does NOT address concurrent-write races between two different users editing the same row simultaneously — flagged honestly as an unsolved scenario at this project's scale, directly relevant to one of the spec's own example assessment questions ("Two users modify the same task at almost exactly the same time. What problems could occur?").
+5. **Verified every cross-referenced file actually exists**: ran the same `grep -rhoE 'docs/[a-zA-Z0-9_/.-]+\.md'` scan used to catch the Phase 2.9 `request-lifecycle.md` gap, this time against the new report specifically, before considering it finished — zero missing references found.
+
+Remaining for full Phase 2: only the final backend assessment (~20 questions, answers withheld until asked per the spec's explicit instruction). This is the single remaining deliverable in the entire project.
+
+Verification:
+- `grep -rhoE 'docs/[a-zA-Z0-9_/.-]+\.md' docs/FINAL-LEARNING-REPORT.md` cross-checked against files on disk → zero missing references (VERIFIED)
+- `php artisan test` (full suite, no code touched) → 61 passed, 154 assertions, unchanged (VERIFIED)
+- `./vendor/bin/pint --test` → passed (VERIFIED)
+
+Files changed:
+- Added: `docs/FINAL-LEARNING-REPORT.md`
+
 ## Important Decisions
 
 1. **Laravel 13 over an older LTS** — chosen because it's the latest stable major and PHP 8.5.11 (the verified machine PHP) is only supported starting Laravel 13 (Laravel 12 tops out at PHP 8.5 too, actually — 12 supports 8.2–8.5 and 13 supports 8.3–8.5 — both would technically work). Went with 13 per the spec's explicit target ("targeting Laravel 13 if it is still the latest stable compatible release"), and it was still latest stable and compatible. No ADR needed yet for this — will be captured implicitly in the general architecture docs during Phase 2, or given its own ADR if a future session judges it warrants one.
@@ -814,13 +835,20 @@ php artisan test (full suite, after cleanup)   → 61 passed, 154 assertions, un
 git status --short   → only docs/testing/manual-verification.md untracked
 ```
 
+```text
+--- Phase 2.13 (Final learning report) ---
+grep -rhoE 'docs/[a-zA-Z0-9_/.-]+\.md' docs/FINAL-LEARNING-REPORT.md cross-checked against disk   → zero missing references
+php artisan test (full suite, no code touched)   → 61 passed, 154 assertions, unchanged
+./vendor/bin/pint --test   → passed
+git status --short   → only docs/FINAL-LEARNING-REPORT.md untracked
+```
+
 ## Current Blocker
 
-None. Phase 2.12 is complete and verified, pending only the commit/push described in NEXT ACTION step 1. Every functional area of the app has now been walked through in one continuous manual session, not just individually per-phase.
+None. Phase 2.13 is complete and verified, pending only the commit/push described in NEXT ACTION step 1. Only the final backend assessment remains in the entire project.
 
 ## NEXT ACTION
 
-1. **Immediate**: commit this Phase 2.12 work (`docs/testing/manual-verification.md` — the only diff, since all walkthrough data was cleaned up before this checkpoint) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing, confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed. Remember `laravel_learning_dev` still has real seed data that should NOT be wiped.
-2. Recommended next sub-phase: the final learning report (`docs/FINAL-LEARNING-REPORT.md`) — the spec's required format covers every concept in a checklist (HTTP, REST, Routing, Middleware, Controllers, DI, Validation, Auth, Sessions, Authorization, Policies, Eloquent, Relationships, SQL, PostgreSQL, Indexes, Transactions, Pagination, Error Handling, Logging, Testing, Docker), each needing: where it appears in this project, relevant files, what to understand, one common mistake, one interview-style question. Nearly every concept already has a dedicated `docs/backend-concepts/*.md` file to draw from and cross-reference — this is substantially a synthesis/cross-referencing task, not writing new explanations from scratch.
-3. Then, finally: the final backend assessment — ~20 questions covering request lifecycle, relationships, Eloquent, authorization, transactions, SQL, performance, security, testing, debugging, including scenario questions (the spec gives 4 examples: N+1 investigation, concurrent-edit race conditions, IDOR via URL manipulation — directly answered by this project's Experiment 1 — and slow-query investigation at scale). **Per the spec's explicit instruction, do NOT provide answers until the user asks for them** — this is a deliberate pedagogical gate, not an oversight, and must be respected exactly as written.
-4. Nothing scope-wise has changed beyond what Phase 2.12 added — remaining work is entirely the two final teaching deliverables. This is genuinely the last stretch of the project — after these two, every functional requirement, every documentation deliverable, and every teaching deliverable the spec names will be complete.
+1. **Immediate**: commit this Phase 2.13 work (`docs/FINAL-LEARNING-REPORT.md` — the only diff) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing, confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed. Remember `laravel_learning_dev` still has real seed data that should NOT be wiped.
+2. **The last remaining deliverable in the entire project**: the final backend assessment — per the spec, ask approximately 20 questions covering request lifecycle, database relationships, Eloquent, authorization, transactions, SQL, performance, security, testing, and debugging, including several scenario questions. The spec gives 4 example scenario questions almost verbatim — all 4 are now directly grounded in real findings from this specific project rather than generic examples: (a) "150 SQL queries on the project page" → this project's own Failure Experiment 4 measured exactly this pattern (3→8 queries) and `docs/backend-concepts/eloquent.md` has the general demonstration; (b) "two users edit the same task simultaneously" → explicitly flagged as an UNADDRESSED gap in the Transactions section of the final learning report, a legitimate "what would you investigate/design" question rather than one with a built-in answer; (c) "user changes `/projects/10` to `/projects/11`" → directly answered by Failure Experiment 1's real IDOR demonstration; (d) "slow at 100,000 tasks" → ties to `docs/backend-concepts/database-indexes.md` and the pagination/N+1 docs. **Per the spec's explicit instruction: do NOT provide answers until the user asks for them** — this is a deliberate pedagogical gate. When writing the assessment, resist the urge to over-explain or hint at answers within the questions themselves.
+3. After the assessment is delivered (questions only, no answers), the project is complete per every explicit requirement in the original spec. If the user later asks for answers, draw on the real, specific evidence already gathered throughout this project (the failure experiments' actual observed output, the real measured query counts, the real HTTP verification results) rather than generic textbook answers — this project's differentiator throughout has been using real evidence over hypothetical explanation, and the assessment answers should maintain that same standard.
