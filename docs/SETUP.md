@@ -52,6 +52,31 @@ npm run build
 php artisan test
 ```
 
+## Seed Data / Demo Accounts
+
+```bash
+php artisan db:seed
+```
+
+Populates `laravel_learning_dev` with the volume `database/seeders/DatabaseSeeder.php` is designed to produce (14 users, 6 projects, 60 tasks, 120 comments, 66 activity log entries) — see that file's own comments for exactly how membership roles and task/comment distribution are constructed. Running `db:seed` again inserts a SECOND full copy of this data (it is not idempotent) — if re-seeding, clear existing rows first:
+
+```bash
+psql -h 127.0.0.1 -U laravel_learning -d laravel_learning_dev \
+  -c "DELETE FROM comments; DELETE FROM activity_logs; DELETE FROM tasks; DELETE FROM project_user; DELETE FROM projects; DELETE FROM users;"
+php artisan db:seed
+```
+
+Four named demo accounts, one per project role, all using the password **`password`** (documented in `DatabaseSeeder::DEMO_PASSWORD`, deliberately not a real-world-safe value — this is local dev seed data only):
+
+| Email | Role on every seeded project |
+|---|---|
+| `admin@example.test` | Owner (creator of 5 of the 6 projects) |
+| `manager@example.test` | Manager |
+| `member@example.test` | Member |
+| `viewer@example.test` | Viewer |
+
+Log in as any of these to immediately see a populated dashboard, project list, and task list without needing to create data manually first.
+
 ## Running the App
 
 ```bash
@@ -61,11 +86,12 @@ php artisan serve
 Then open:
 
 - `http://127.0.0.1:8000/` — Laravel's default welcome page
-- `http://127.0.0.1:8000/system-check` — Phase 1 bootstrap verification page; confirms Blade is rendering data that came from a live PostgreSQL query (PHP version, Laravel version, DB driver, PostgreSQL server version, current DB time via `SELECT now()`, and `users` row count). This route is temporary scaffolding and will be removed/replaced once the real dashboard exists in Phase 2.
+- `http://127.0.0.1:8000/login` — log in with one of the demo accounts above (after seeding) to explore the app immediately
+- `http://127.0.0.1:8000/system-check` — Phase 1 bootstrap verification page; confirms Blade is rendering data that came from a live PostgreSQL query. Left in place as a standing low-level connectivity check, distinct from the real dashboard.
 - `http://127.0.0.1:8000/up` — Laravel's built-in health check route (returns 200 if the app boots).
 
 ## Known Non-Blocking Issues
 
 See `docs/architecture/version-matrix.md` → "Known Version Mismatches" for the `concurrently`/Node 22 engine warning.
 
-The default test suite (`phpunit.xml`) currently runs against in-memory SQLite, not PostgreSQL. This is Laravel's stock scaffolding default and has **not** been changed yet — it is an open decision to be resolved with `docs/architecture/adr/010-testing-strategy.md` in a later phase, per the project's stated preference for testing against PostgreSQL where practical.
+The test suite runs against a dedicated PostgreSQL database (`laravel_learning_test`), not SQLite — see `docs/architecture/adr/010-testing-strategy.md` for the full reasoning (this was resolved early in the project; the SQLite default only ever applied briefly during initial bootstrap).

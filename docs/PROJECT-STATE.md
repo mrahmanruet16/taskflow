@@ -2,13 +2,13 @@
 
 ## Current Phase
 
-Phase: 2 — Implement the learning project (sub-phase 2.9: Remaining backend-concepts docs + real logging)
-Status: Sub-phases 2.1–2.9 COMPLETE and VERIFIED. All 14 spec-required backend-concepts docs now exist, all 10 ADRs exist, and the app now has real `Log::` calls (previously zero existed despite the spec requiring "useful Laravel logging" as a functional requirement, not just documentation). Seeders at volume, failure experiments, final report/assessment NOT started.
+Phase: 2 — Implement the learning project (sub-phase 2.10: Database seeding + demo accounts)
+Status: Sub-phases 2.1–2.10 COMPLETE and VERIFIED. Dev database now populated at spec-required volume with 4 named demo accounts. Failure experiments, manual-verification checklist, final report/assessment NOT started.
 Last Updated: 2026-09-29
 
 ## Remote
 
-Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Fourteen commits pushed and confirmed (`git push` output showed `0e5a0d6..3b1b775  main -> main`):
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Fifteen commits pushed as of the last confirmed push (`dfeaf28`); Phase 2.10 (this checkpoint) is NOT YET COMMITTED as of this writing — see NEXT ACTION, and do not trust this line without re-checking `git log`/`git status`:
 - `84a7bd8` — root commit, covers Phases 1 + 2.1 (Authentication) + 2.2 (Projects CRUD)
 - `3c7cb50` — Phase 2.3 (Project Membership, transactions, activity logging)
 - `2d6eb19` — PROJECT-STATE.md correction after confirming the 2.3 push
@@ -23,8 +23,11 @@ Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Fourteen c
 - `c68bcd4` — Phase 2.8 (foundational ADRs 001–004, 007)
 - `0e5a0d6` — PROJECT-STATE.md correction after confirming the 2.8 push
 - `3b1b775` — Phase 2.9 (real logging + remaining 8 backend-concepts docs, including the request-lifecycle.md fix)
+- `dfeaf28` — PROJECT-STATE.md correction after confirming the 2.9 push
 
-Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
+## Important: Dev Database Now Contains Real Seed Data
+
+Starting this sub-phase, `laravel_learning_dev` is intentionally populated (14 users, 6 projects, 60 tasks, 120 comments, 66 activity logs — see `database/seeders/DatabaseSeeder.php`) and this data is meant to PERSIST, unlike every prior phase's manual-verification data, which was always deliberately created and then cleaned up. **A future session must NOT reflexively `DELETE FROM` the dev database's tables as part of "cleanup"** the way every previous phase's manual verification did — check whether new manual-verification data is being added on top of the seed data (in which case, clean up only the newly-added rows, not the seeded baseline) before running any destructive query against `laravel_learning_dev`.
 
 Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
 
@@ -58,6 +61,7 @@ Full detail and compatibility reasoning: `docs/architecture/version-matrix.md`.
 - [~] Phase 7 — Validation, errors, transactions and backend hardening (validation: done since Phase 2.2/2.4; transactions: done since Phase 2.3, ADR 008; custom 404/403/500 error pages + empirically-verified `APP_DEBUG=false` behavior: done, sub-phase 2.7. Remaining: no other hardening gaps identified yet — revisit if failure experiments surface one)
 - [x] Phase 8 — Pagination, filtering and sorting (Projects: pagination since 2.2; Tasks: pagination + status/priority/assignee filtering + due_date/priority/created_at sorting, since 2.4 — matches the spec's exact `?status=&priority=&assignee=` example)
 - [x] Dashboard (spec section 2, not separately numbered in this template) — sub-phase 2.6, complete: real aggregate COUNT() queries (Projects/Tasks/Completed/Pending/Overdue), verified as 5 flat queries regardless of task volume (measured via tinker, same rigor as the eloquent.md N+1 demonstration), verified correct over real HTTP including the completed-but-overdue-due-date edge case (must NOT count as overdue)
+- [x] Database Seeding + Demo Accounts (spec's explicit "Database Seeding"/"Factories" sections, not separately numbered in this template) — sub-phase 2.10, complete: 14 users/6 projects/60 tasks/120 comments/66 activity logs, exceeding all spec-required minimums (10+/5+/50+/100+); 4 named demo accounts (admin/manager/member/viewer @example.test, password "password") each a member of every seeded project with their intended role; verified over real HTTP (logged in as admin@example.test, dashboard counts cross-checked exactly against direct DB queries)
 - [ ] Phase 9 — Tests
 - [ ] Phase 10 — UI/browser verification
 - [ ] Phase 11 — Failure experiments
@@ -450,6 +454,35 @@ Files changed:
 - Added: `docs/architecture/request-lifecycle.md`
 - Added: `docs/backend-concepts/logging.md`, `database-indexes.md`, `transactions.md`, `pagination.md`, `http-and-rest.md`, `routing.md`, `middleware.md`, `controllers.md`
 
+### Phase 2.10 — Database Seeding + Demo Accounts
+Status: Complete, verified (real HTTP login as a demo account + dashboard counts cross-checked exactly against direct DB queries)
+
+Completed:
+1. **Found and fixed a real, previously-untracked cleanup gap before seeding**: checked the dev database's state before running the new seeder (a habit established every prior phase) and found 3 orphaned `activity_logs` rows left over from Phase 2.6's manual verification — that phase's cleanup command omitted `activity_logs` from its `DELETE FROM` list (harmless at the time since `user_id`/subject references are nullable/unenforced, but still stale data). Cleaned it up before seeding rather than seeding on top of leftover noise.
+2. **`database/seeders/DatabaseSeeder.php` rewritten** from the Laravel-default single-test-user stub to real seed data at the spec's required volume: 4 named demo accounts (`admin@example.test`/`manager@example.test`/`member@example.test`/`viewer@example.test`, password `password`, documented as a constant with an explicit comment that this is dev-only seed data, never a real-world-safe value) + 10 additional random users (14 total, exceeds the 10+ requirement); 6 projects (exceeds 5+); every demo account attached as a member of every project with their INTENDED role (Owner/Manager/Member/Viewer) — not left to whatever a factory default would produce — so logging in as any one of them immediately demonstrates role-based authorization without further setup; ~10 tasks per project (60 total, exceeds 50+), with the first 2 tasks per project deliberately overdue so the Dashboard's Overdue count is never zero in the seeded data; ~2 comments per task (120 total, exceeds 100+); activity log entries for every project/task creation (66 total), giving every seeded project/task a non-empty activity feed out of the box.
+3. **Caught and fixed 2 code-quality issues via Pint + self-review, not left in**: an unused `TaskPriority` import (Pint's `no_unused_imports` fixer), and a genuinely dead `$projectRoster` variable (declared, assigned, never referenced) — removed rather than left as clutter, matching the project's "no dead code" principle.
+4. **Verified the seeder is correct, not just that it runs without error**: after seeding, ran direct `psql` queries confirming exact row counts (14/6/60/120/66) and confirming every demo account's role on every project matches the intended design (only one deviation, expected: on the one project NOT created by admin, admin holds the Member role instead of Owner, exactly as the seeder's logic specifies).
+5. **Manual HTTP verification, the most consequential of this phase**: started a real `php artisan serve` instance, logged in as `admin@example.test` with the documented password, confirmed the Dashboard showed 6/60/13/35/12 (projects/tasks/completed/pending/overdue) — then ran the equivalent raw SQL aggregate query directly against PostgreSQL and confirmed an EXACT match, proving the seeded data and the dashboard aggregation code (built in Phase 2.6, before any seed data existed to test it against at this volume) are both correct together, not just individually plausible. Also confirmed a project's detail page shows the exact designed "Members (6) / Tasks (10)" counts, and that `/tasks?status=completed` correctly returns exactly the 13 completed tasks with zero non-completed tasks leaking through.
+6. **Deliberately did NOT clean up this data afterward** — unlike every previous phase's manual-verification data (always created and then deleted), this seed data is the actual intended deliverable and is meant to persist in `laravel_learning_dev` going forward. Added an explicit warning note near the top of this file (see "Important: Dev Database Now Contains Real Seed Data" above) so a future session doesn't reflexively wipe it the way every prior phase's cleanup routine did.
+7. **Updated `docs/SETUP.md`** with seeding instructions (including that `db:seed` is NOT idempotent — re-running it inserts a second full copy, so clearing first is documented explicitly) and the demo account table.
+
+Remaining for full Phase 2: the 5 numbered failure experiments; `docs/testing/manual-verification.md`; final learning report; final backend assessment. A handful of docs named only in the spec's file-tree diagram (not its required-doc prose list) remain optional/lower-priority (unchanged from the prior checkpoint).
+
+Verification:
+- `psql` row counts after seeding → 14 users, 6 projects, 60 tasks, 120 comments, 66 activity_logs, 36 project_user rows (VERIFIED, exceeds every spec minimum)
+- `psql` role-assignment cross-check for all 4 demo accounts across all 6 projects → matches intended design exactly (VERIFIED)
+- `php artisan test` (full suite, dev DB seeded, test DB untouched since it's a separate database) → 61 passed, 154 assertions, unchanged (VERIFIED — confirms seeding the dev DB has zero effect on the test suite)
+- `./vendor/bin/pint --test` → passed after 2 fixes (unused import, dead variable) (VERIFIED)
+- Manual HTTP login as `admin@example.test` / `password` → 302 to `/dashboard` (VERIFIED)
+- Dashboard shows 6/60/13/35/12 → cross-checked against a direct SQL aggregate query → EXACT match (VERIFIED)
+- Project detail page shows "Members (6) / Tasks (10)" exactly as designed (VERIFIED)
+- `/tasks?status=completed` shows exactly 13 completed-status badges, zero others (VERIFIED)
+
+Files changed:
+- Modified: `database/seeders/DatabaseSeeder.php` (real seed data, replacing the Laravel-default stub)
+- Modified: `docs/SETUP.md` (seeding instructions + demo account table)
+- Modified: `docs/PROJECT-STATE.md` (this file — added the "dev DB now contains real data" warning)
+
 ## Important Decisions
 
 1. **Laravel 13 over an older LTS** — chosen because it's the latest stable major and PHP 8.5.11 (the verified machine PHP) is only supported starting Laravel 13 (Laravel 12 tops out at PHP 8.5 too, actually — 12 supports 8.2–8.5 and 13 supports 8.3–8.5 — both would technically work). Went with 13 per the spec's explicit target ("targeting Laravel 13 if it is still the latest stable compatible release"), and it was still latest stable and compatible. No ADR needed yet for this — will be captured implicitly in the general architecture docs during Phase 2, or given its own ADR if a future session judges it warrants one.
@@ -482,6 +515,8 @@ Files changed:
 28. **No service layer (`app/Services/`) anywhere in this app** — business logic lives directly in controllers; the multi-step `DB::transaction()` in `ProjectController::store()` is the concrete example. Documented in ADR 007 with an explicit trigger for reconsidering: the moment any business operation needs a second real caller beyond its current single controller action.
 29. **Added 4 real `Log::` call sites (project deletion, task deletion, member removal, login/logout/failed-login)** — discovered zero existed anywhere in the app despite the spec requiring "useful Laravel logging" as a functional requirement; added rather than just documenting the absence. See `docs/backend-concepts/logging.md`.
 30. **Project deletion gets a system log (`Log::warning`) but deliberately NOT an `ActivityLog` row, unlike every other destructive action** — logging an activity entry pointing at a subject about to be deleted would leave a permanently orphaned reference with nothing left to view.
+31. **Seeded data is deliberately NOT cleaned up after verification, unlike every prior phase's manual test data** — this is the actual intended deliverable, meant to persist in `laravel_learning_dev`. Explicit warning added near the top of this file so a future session doesn't reflexively wipe it.
+32. **`db:seed` is not idempotent by design** — re-running it inserts a second full copy rather than upserting; documented explicitly in `docs/SETUP.md` with the exact `DELETE FROM` sequence to clear first, rather than adding upsert logic to the seeder itself (unnecessary complexity for a one-time-per-fresh-database operation).
 
 ## Known Issues
 
@@ -642,16 +677,29 @@ grep -rhoE 'docs/[a-zA-Z0-9_/.-]+\.md' docs/ cross-checked against disk (BEFORE 
 (wrote docs/architecture/request-lifecycle.md)
 same scan re-run (AFTER)   → only 3 references remain, all confirmed legitimately forward-looking ("added later"/"planned"), not false present-tense claims
 ls docs/backend-concepts/ | sort   → confirmed all 14 spec-required files present
+
+--- Phase 2.10 (Database seeding + demo accounts) ---
+psql pre-seed check   → found 3 orphaned activity_logs rows from Phase 2.6's incomplete cleanup, deleted before seeding
+php artisan db:seed   → completed without error
+psql row counts   → 14 users, 6 projects, 60 tasks, 120 comments, 66 activity_logs, 36 project_user (all exceed spec minimums)
+./vendor/bin/pint --test (before fixes)   → failed, DatabaseSeeder.php (unused TaskPriority import)
+(fixed unused import + removed dead $projectRoster variable)
+./vendor/bin/pint --test (after fixes)   → passed
+php artisan test (full suite, dev DB seeded)   → 61 passed, 154 assertions, unchanged
+Manual HTTP: login admin@example.test / password   → 302 to /dashboard
+GET /dashboard   → 6/60/13/35/12 (projects/tasks/completed/pending/overdue)
+Direct SQL aggregate query (independent of app code)   → 60/13/35/12 — EXACT match to dashboard's rendered values
+GET /projects/{id}   → "Members (6) / Tasks (10)" — exact match to seeder's designed per-project counts
+GET /tasks?status=completed   → exactly 13 "Completed" badges, zero other statuses present
 ```
 
 ## Current Blocker
 
-None. Phase 2.9 is complete and verified, pending only the commit/push described in NEXT ACTION step 1. All 10 ADRs and all 14 backend-concepts docs now exist; the app has real Laravel logging where previously it had none.
+None. Phase 2.10 is complete and verified, pending only the commit/push described in NEXT ACTION step 1. The dev database is now populated with real, intentionally-persistent seed data and 4 working demo accounts.
 
 ## NEXT ACTION
 
-1. **Immediate**: commit this Phase 2.9 work (5 app-code files with new `Log::` calls + 8 new docs — everything listed under "Files changed" in the Phase 2.9 section above) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing (this phase's app-code diff explicitly discusses NOT logging passwords in comments — confirm those are comments, not actual logged values, before committing), confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed.
-2. Recommended next sub-phase: a real `DatabaseSeeder` invoking all four factories (User/Project/Task/Comment) at the spec's required volume (10+ users, 5+ projects, 50+ tasks, 100+ comments), plus the spec's named demo accounts (admin@example.test / manager@example.test / member@example.test / viewer@example.test) with documented demo passwords — none of this exists yet, `DatabaseSeeder.php` is still the Laravel-default empty stub. This is the natural next piece since the failure experiments and final manual-verification checklist will both be easier to demonstrate against a realistically-populated database rather than the empty one every phase's manual verification has carefully cleaned up after itself.
-3. Then: the 5 numbered failure experiments from the spec (deliberately break auth/validation/transactions/N+1/DB-constraints and document what happens) — most of the underlying mechanics to break are already built and individually testable from prior phases; this phase is about deliberately breaking them ON PURPOSE and writing up the observed failure, not building new functionality. Several natural hooks already exist: removing the `auth` middleware (`routes/web.php` comments already reference this as "Failure Experiment 1"), removing the `DB::transaction()` in `ProjectController::store()` (ADR 008 already references this as "Failure Experiment 3"), removing eager loading from `ProjectController::index()`/`show()` (ties to the N+1 measurement already done in `docs/backend-concepts/eloquent.md`).
-4. Then: `docs/testing/manual-verification.md` (a consolidated checklist — much of its content already exists scattered across this file's manual-verification notes per phase and could be extracted/reorganized rather than written from scratch), final learning report (`docs/FINAL-LEARNING-REPORT.md`), final backend assessment (~20 questions, spec explicitly says not to provide answers until asked).
-5. Nothing scope-wise has changed beyond what Phase 2.9 added — remaining work is entirely: seeders/demo accounts, failure experiments, and the two final teaching deliverables. A handful of docs named only in the spec's file-tree diagram (not its required-doc prose list) remain optional/lower-priority, noted in the Overall Progress checklist above.
+1. **Immediate**: commit this Phase 2.10 work (`database/seeders/DatabaseSeeder.php`, `docs/SETUP.md`, this file — everything listed under "Files changed" in the Phase 2.10 section above) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing (the demo password `password` appears as a literal string in `DatabaseSeeder.php` and `docs/SETUP.md` — this is fine and intentional, a documented local-dev-only seed value, not a leaked real credential; don't mistake it for one and don't strip it out). Confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed. **Also remember**: `laravel_learning_dev` now has real seed data that should NOT be wiped — see the warning near the top of this file.
+2. Recommended next sub-phase: the 5 numbered failure experiments from the spec (deliberately break auth/validation/transactions/N+1/DB-constraints and document what happens) — most of the underlying mechanics to break are already built and individually testable from prior phases; this phase is about deliberately breaking them ON PURPOSE and writing up the observed failure, not building new functionality. Several natural hooks already exist: removing the `auth` middleware (`routes/web.php` comments already reference this as "Failure Experiment 1"), removing the `DB::transaction()` in `ProjectController::store()` (ADR 008 already references this as "Failure Experiment 3"), removing eager loading from `ProjectController::index()`/`show()` (ties to the N+1 measurement already done in `docs/backend-concepts/eloquent.md`). **With seed data now in place, these experiments can be demonstrated against realistic data volume rather than data created just for the experiment.**
+3. Then: `docs/testing/manual-verification.md` (a consolidated checklist — much of its content already exists scattered across this file's manual-verification notes per phase and could be extracted/reorganized rather than written from scratch), final learning report (`docs/FINAL-LEARNING-REPORT.md`), final backend assessment (~20 questions, spec explicitly says not to provide answers until asked).
+4. Nothing scope-wise has changed beyond what Phase 2.10 added — remaining work is entirely: failure experiments, and the two final teaching deliverables. A handful of docs named only in the spec's file-tree diagram (not its required-doc prose list) remain optional/lower-priority, noted in the Overall Progress checklist above.
