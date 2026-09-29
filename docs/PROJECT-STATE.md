@@ -2,13 +2,13 @@
 
 ## Current Phase
 
-Phase: 2 — Implement the learning project (sub-phase 2.10: Database seeding + demo accounts)
-Status: Sub-phases 2.1–2.10 COMPLETE and VERIFIED. Dev database now populated at spec-required volume with 4 named demo accounts. Failure experiments, manual-verification checklist, final report/assessment NOT started.
+Phase: 2 — Implement the learning project (sub-phase 2.11: Failure experiments)
+Status: Sub-phases 2.1–2.11 COMPLETE and VERIFIED. All 5 spec-required failure experiments performed against real running code with real captured evidence, then cleanly reverted. Manual-verification checklist, final report/assessment NOT started.
 Last Updated: 2026-09-29
 
 ## Remote
 
-Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Sixteen commits pushed and confirmed (`git push` output showed `dfeaf28..3e42c69  main -> main`):
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Seventeen commits pushed as of the last confirmed push (`4e5211f`); Phase 2.11 (this checkpoint) is NOT YET COMMITTED as of this writing — see NEXT ACTION, and do not trust this line without re-checking `git log`/`git status`:
 - `84a7bd8` — root commit, covers Phases 1 + 2.1 (Authentication) + 2.2 (Projects CRUD)
 - `3c7cb50` — Phase 2.3 (Project Membership, transactions, activity logging)
 - `2d6eb19` — PROJECT-STATE.md correction after confirming the 2.3 push
@@ -25,8 +25,7 @@ Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Sixteen co
 - `3b1b775` — Phase 2.9 (real logging + remaining 8 backend-concepts docs, including the request-lifecycle.md fix)
 - `dfeaf28` — PROJECT-STATE.md correction after confirming the 2.9 push
 - `3e42c69` — Phase 2.10 (database seeding + demo accounts)
-
-Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
+- `4e5211f` — PROJECT-STATE.md correction after confirming the 2.10 push
 
 ## Important: Dev Database Now Contains Real Seed Data
 
@@ -67,7 +66,7 @@ Full detail and compatibility reasoning: `docs/architecture/version-matrix.md`.
 - [x] Database Seeding + Demo Accounts (spec's explicit "Database Seeding"/"Factories" sections, not separately numbered in this template) — sub-phase 2.10, complete: 14 users/6 projects/60 tasks/120 comments/66 activity logs, exceeding all spec-required minimums (10+/5+/50+/100+); 4 named demo accounts (admin/manager/member/viewer @example.test, password "password") each a member of every seeded project with their intended role; verified over real HTTP (logged in as admin@example.test, dashboard counts cross-checked exactly against direct DB queries)
 - [ ] Phase 9 — Tests
 - [ ] Phase 10 — UI/browser verification
-- [ ] Phase 11 — Failure experiments
+- [x] Phase 11 — Failure experiments (sub-phase 2.11, complete — all 5 performed against real running code/data, real captured evidence, all cleanly reverted and verified: `git diff` empty after code-level experiments, schema byte-for-byte identical after the constraint experiment, full test suite green after each)
 - [x] Phase 12 — Documentation and ADR completion (ADRs: all 10 spec-required ADRs exist, sub-phase 2.8. Backend-concepts docs: all 14 spec-required docs now exist, sub-phase 2.9 — including `docs/architecture/request-lifecycle.md`, discovered missing and written this same sub-phase after finding 4 other docs falsely referenced it as "already documented." Remaining: `docs/architecture/system-overview.md`, `database-design.md`, `architecture-decisions.md`, `docs/database/database-design.md`, `docs/security/security-model.md`, `docs/testing/testing-strategy.md` are named in the spec's file-tree diagram but not the explicit required-list prose — treated as lower priority than the explicitly-named docs, not yet written)
 - [ ] Phase 13 — Final learning report
 - [ ] Phase 14 — Final backend assessment
@@ -486,6 +485,36 @@ Files changed:
 - Modified: `docs/SETUP.md` (seeding instructions + demo account table)
 - Modified: `docs/PROJECT-STATE.md` (this file — added the "dev DB now contains real data" warning)
 
+### Phase 2.11 — Failure Experiments
+Status: Complete, verified (all 5 experiments performed for real, all cleanly reverted with verified-empty diffs / verified-identical schema, full test suite green throughout)
+
+Completed, one experiment at a time, each following the same discipline (break → observe with real evidence → revert → verify clean):
+
+1. **Experiment 1 (Authorization)**: removed `Gate::authorize('view', $project)` from `ProjectController::show()`. Automated test caught it immediately (`test_non_owner_cannot_view_the_project` failed, 403 expected but got 200). Manually registered a genuine outsider account with zero relationship to any seeded project, hit a real seeded project's URL directly, got 200 with the full page — including every real member's name leaking (`Admin User`, `Manager User`, `Member User`, `Viewer User`, plus 2 random seeded users). This directly answers the spec's own scenario question about URL ID-guessing.
+2. **Experiment 2 (Validation)**: removed `'required'` from `StoreProjectRequest`'s `name` rule. Submitted a real `POST /projects` with `name` omitted entirely — got a raw `500` with `SQLSTATE[23502]` (PostgreSQL's not-null-violation) visible in the response, instead of a friendly validation redirect. Critically, confirmed the *data* stayed safe (`SELECT count(*) FROM projects WHERE name IS NULL` → 0) — the DB constraint held; only the user experience degraded from graceful to catastrophic. This is the clearest possible illustration of validation and DB constraints being complementary, not redundant.
+3. **Experiment 3 (Transaction)**: removed `DB::transaction()` from `ProjectController::store()`, inserted a forced `RuntimeException` between the first write (create the project) and the remaining two (attach owner, log activity). Automated test caught it (`test_creating_a_project_creates_membership_and_activity_log_atomically` failed, "table is empty"). Manual HTTP request confirmed the project row survived the 500 with zero `project_user` rows — then, the most consequential finding of any experiment: **the project's own creator, tested immediately afterward, got 403 trying to view their own project**, because `ProjectPolicy::view()` requires a membership row the aborted transaction never created. This project became permanently unrecoverable through the app UI — a concrete demonstration that this isn't an abstract "data integrity" concern but a genuinely broken, unfixable-without-direct-DB-access resource.
+4. **Experiment 4 (N+1)**: removed `->with('owner')` from `ProjectController::index()`. Measured the REAL controller method (not a simulated query) against the real seeded admin account's 6 projects: 3 queries with eager loading intact, 8 queries with it removed (1 count + 1 list + 6 individual per-owner lookups) — captured and reviewed the actual SQL for all 8. Ties directly to the general pattern already documented with independent measurements in `docs/backend-concepts/eloquent.md`.
+5. **Experiment 5 (Database Constraint)**: dropped `tasks_project_id_foreign` — deliberately against the **test database**, not the dev database with real seed data, since this experiment mutates schema and the test DB self-heals via `RefreshDatabase`. Snapshotted `\d tasks` before. Inserted a task with `project_id=999999` (no such project exists) directly via SQL — succeeded, proving nothing else in the stack would have caught it. Then demonstrated the actual application-level consequence via `tinker`: `$task->project` returned `null` (Eloquent's `belongsTo` doesn't throw for a missing row), and `$task->project->name` produced `Attempt to read property "name" on null` — exactly the crash any real page rendering this row would hit. Cleaned up the orphaned row and throwaway user, restored the exact original constraint, and confirmed the schema was **byte-for-byte identical** to the pre-experiment snapshot via `diff` (not just "looks right").
+
+Every experiment's revert was verified, not assumed: `git diff` confirmed empty after each code-level change (Experiments 1, 2, 3, 4), Experiment 5's schema diff confirmed identical, and the full test suite (61/61) plus Pint confirmed passing after every single experiment before starting the next one — no experiment was left in a broken state while the next one began.
+
+Wrote `docs/testing/failure-experiments.md` — all 5 experiments documented with the real quoted command output/observations captured during this phase (not paraphrased or reconstructed from memory afterward), plus a summary table cross-referencing each experiment against which architectural layer would have prevented the failure.
+
+Remaining for full Phase 2: `docs/testing/manual-verification.md` (a consolidated checklist); final learning report (`docs/FINAL-LEARNING-REPORT.md`); final backend assessment (~20 questions, answers withheld until asked). A handful of docs named only in the spec's file-tree diagram remain optional/lower-priority.
+
+Verification:
+- Experiment 1: `php artisan test --filter=ProjectTest` failed as predicted (1/12) → reverted → passed (12/12) (VERIFIED)
+- Experiment 2: manual HTTP 500 + `SQLSTATE[23502]` confirmed in response + `SELECT count(*) FROM projects WHERE name IS NULL` = 0 (VERIFIED)
+- Experiment 3: manual HTTP 500 + project row exists with 0 membership rows + creator gets 403 on their own project (VERIFIED) → reverted → full suite 61/61 (VERIFIED)
+- Experiment 4: real controller call measured 3 queries (baseline) vs 8 queries (broken), actual SQL captured and reviewed for both (VERIFIED) → reverted → full suite 61/61 (VERIFIED)
+- Experiment 5: schema `diff` before/after confirmed byte-for-byte identical; orphaned-row insert succeeded with constraint dropped, failed to load correctly via Eloquent (`null` + property-read warning) (VERIFIED) → full suite 61/61 + Pint clean (VERIFIED)
+- Dev database seed data confirmed fully intact after all experiments (14/6/60/120/66 unchanged) (VERIFIED)
+- `git status --short` after all 5 experiments → only `docs/testing/` (the new writeup) untracked, zero app-code diff remaining (VERIFIED)
+
+Files changed:
+- Added: `docs/testing/failure-experiments.md`
+- (Temporarily modified and cleanly reverted, not part of the final diff: `app/Http/Controllers/ProjectController.php` for Experiments 1/3/4, `app/Http/Requests/StoreProjectRequest.php` for Experiment 2, `laravel_learning_test`'s `tasks` table schema for Experiment 5)
+
 ## Important Decisions
 
 1. **Laravel 13 over an older LTS** — chosen because it's the latest stable major and PHP 8.5.11 (the verified machine PHP) is only supported starting Laravel 13 (Laravel 12 tops out at PHP 8.5 too, actually — 12 supports 8.2–8.5 and 13 supports 8.3–8.5 — both would technically work). Went with 13 per the spec's explicit target ("targeting Laravel 13 if it is still the latest stable compatible release"), and it was still latest stable and compatible. No ADR needed yet for this — will be captured implicitly in the general architecture docs during Phase 2, or given its own ADR if a future session judges it warrants one.
@@ -520,6 +549,8 @@ Files changed:
 30. **Project deletion gets a system log (`Log::warning`) but deliberately NOT an `ActivityLog` row, unlike every other destructive action** — logging an activity entry pointing at a subject about to be deleted would leave a permanently orphaned reference with nothing left to view.
 31. **Seeded data is deliberately NOT cleaned up after verification, unlike every prior phase's manual test data** — this is the actual intended deliverable, meant to persist in `laravel_learning_dev`. Explicit warning added near the top of this file so a future session doesn't reflexively wipe it.
 32. **`db:seed` is not idempotent by design** — re-running it inserts a second full copy rather than upserting; documented explicitly in `docs/SETUP.md` with the exact `DELETE FROM` sequence to clear first, rather than adding upsert logic to the seeder itself (unnecessary complexity for a one-time-per-fresh-database operation).
+33. **Experiment 5 (database constraint) run against the test database, not the dev database with real seed data** — a deliberate scope decision distinct from Experiments 1–4 (which used the seeded dev DB with careful cleanup), because this experiment mutates schema, not just rows, and the test DB's `RefreshDatabase` behavior provides an extra layer of self-healing the dev DB doesn't have.
+34. **Every failure experiment's revert verified with an artifact, not just re-reading the diff by eye**: `git diff` piped and confirmed empty (Experiments 1–4), `diff` of two captured schema snapshots confirmed identical (Experiment 5) — matching the same rigor established in the `APP_DEBUG` verification back in Phase 2.7.
 
 ## Known Issues
 
@@ -694,15 +725,44 @@ GET /dashboard   → 6/60/13/35/12 (projects/tasks/completed/pending/overdue)
 Direct SQL aggregate query (independent of app code)   → 60/13/35/12 — EXACT match to dashboard's rendered values
 GET /projects/{id}   → "Members (6) / Tasks (10)" — exact match to seeder's designed per-project counts
 GET /tasks?status=completed   → exactly 13 "Completed" badges, zero other statuses present
+
+--- Phase 2.11 (Failure experiments) ---
+Experiment 1: php artisan test --filter=ProjectTest (check removed)   → 11/12 passed, 1 failed exactly as predicted (403 expected, got 200)
+  Manual: outsider account GET /projects/16 (not a member)   → 200, full page + 6 real member names leaked
+  Reverted: git diff app/Http/Controllers/ProjectController.php   → empty; ProjectTest → 12/12 passed
+Experiment 2: manual POST /projects with name omitted (required rule removed)   → 500, SQLSTATE[23502] visible in response
+  SELECT count(*) FROM projects WHERE name IS NULL   → 0 (DB constraint held, only the error page was bad)
+  Reverted: git diff app/Http/Requests/StoreProjectRequest.php   → empty; ProjectTest → 12/12 passed
+Experiment 3: php artisan test --filter=ProjectMemberTest (transaction removed, forced exception)   → 9/10 passed, 1 failed exactly as predicted ("table is empty")
+  Manual: POST /projects (forced failure)   → 500; project row exists (id 23), 0 project_user rows
+  Manual: creator GET /projects/23 (their own project)   → 403 — permanently locked out via the app UI
+  Reverted: git diff app/Http/Controllers/ProjectController.php   → empty; full suite → 61/61 passed
+Experiment 4: real ProjectController::index() call, admin@example.test, 6 real seeded projects
+  WITH with('owner')     → 3 queries
+  WITHOUT with('owner')  → 8 queries (1 count + 1 list + 6 individual owner lookups), actual SQL captured and reviewed
+  Reverted: git diff app/Http/Controllers/ProjectController.php   → empty; full suite → 61/61 passed
+Experiment 5 (against laravel_learning_test, not dev DB):
+  \d tasks snapshot BEFORE constraint drop   → captured
+  ALTER TABLE tasks DROP CONSTRAINT tasks_project_id_foreign   → succeeded
+  INSERT task with project_id=999999 (nonexistent)   → succeeded (would have failed with constraint intact)
+  tinker: $task->project   → null; $task->project->name   → "Attempt to read property on null" warning
+  Cleanup: orphaned task + throwaway user deleted
+  ALTER TABLE tasks ADD CONSTRAINT ... (exact original definition)   → succeeded
+  diff of before/after \d tasks snapshots   → IDENTICAL (byte-for-byte)
+  php artisan test (full suite) + ./vendor/bin/pint --test   → 61/61 passed, Pint clean
+Final sanity check after all 5 experiments:
+  psql seed data row counts   → 14/6/60/120/66, UNCHANGED from before experiments began
+  git status --short   → only docs/testing/ (the new writeup) untracked, zero app-code diff remaining
 ```
 
 ## Current Blocker
 
-None. Phase 2.10 is complete and verified, pending only the commit/push described in NEXT ACTION step 1. The dev database is now populated with real, intentionally-persistent seed data and 4 working demo accounts.
+None. Phase 2.11 is complete and verified, pending only the commit/push described in NEXT ACTION step 1. All 5 spec-required failure experiments performed and documented with real evidence.
 
 ## NEXT ACTION
 
-1. **Immediate**: commit this Phase 2.10 work (`database/seeders/DatabaseSeeder.php`, `docs/SETUP.md`, this file — everything listed under "Files changed" in the Phase 2.10 section above) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing (the demo password `password` appears as a literal string in `DatabaseSeeder.php` and `docs/SETUP.md` — this is fine and intentional, a documented local-dev-only seed value, not a leaked real credential; don't mistake it for one and don't strip it out). Confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed. **Also remember**: `laravel_learning_dev` now has real seed data that should NOT be wiped — see the warning near the top of this file.
-2. Recommended next sub-phase: the 5 numbered failure experiments from the spec (deliberately break auth/validation/transactions/N+1/DB-constraints and document what happens) — most of the underlying mechanics to break are already built and individually testable from prior phases; this phase is about deliberately breaking them ON PURPOSE and writing up the observed failure, not building new functionality. Several natural hooks already exist: removing the `auth` middleware (`routes/web.php` comments already reference this as "Failure Experiment 1"), removing the `DB::transaction()` in `ProjectController::store()` (ADR 008 already references this as "Failure Experiment 3"), removing eager loading from `ProjectController::index()`/`show()` (ties to the N+1 measurement already done in `docs/backend-concepts/eloquent.md`). **With seed data now in place, these experiments can be demonstrated against realistic data volume rather than data created just for the experiment.**
-3. Then: `docs/testing/manual-verification.md` (a consolidated checklist — much of its content already exists scattered across this file's manual-verification notes per phase and could be extracted/reorganized rather than written from scratch), final learning report (`docs/FINAL-LEARNING-REPORT.md`), final backend assessment (~20 questions, spec explicitly says not to provide answers until asked).
-4. Nothing scope-wise has changed beyond what Phase 2.10 added — remaining work is entirely: failure experiments, and the two final teaching deliverables. A handful of docs named only in the spec's file-tree diagram (not its required-doc prose list) remain optional/lower-priority, noted in the Overall Progress checklist above.
+1. **Immediate**: commit this Phase 2.11 work (`docs/testing/failure-experiments.md` — the only actual diff, since every experiment's code/schema change was reverted before this checkpoint) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing, confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed. Remember `laravel_learning_dev` still has real seed data that should NOT be wiped.
+2. Recommended next sub-phase: `docs/testing/manual-verification.md` — a consolidated checklist. Much of its content already exists, scattered across this file's own per-phase "Manual curl verification" notes throughout the Verification History section above — this is primarily an extraction/reorganization task (pull each phase's manual steps into one coherent walkthrough matching the spec's example format), not a from-scratch writing task.
+3. Then: the final learning report (`docs/FINAL-LEARNING-REPORT.md`) — the spec's required format covers every concept in a checklist (HTTP, REST, Routing, Middleware, Controllers, DI, Validation, Auth, Sessions, Authorization, Policies, Eloquent, Relationships, SQL, PostgreSQL, Indexes, Transactions, Pagination, Error Handling, Logging, Testing, Docker), each needing: where it appears in this project, relevant files, what to understand, one common mistake, one interview-style question. Nearly every concept already has a dedicated `docs/backend-concepts/*.md` file to draw from and cross-reference, rather than writing new explanations from scratch.
+4. Finally: the final backend assessment — ~20 questions covering request lifecycle, relationships, Eloquent, authorization, transactions, SQL, performance, security, testing, debugging, including scenario questions (the spec gives 4 examples: N+1 investigation, concurrent-edit race conditions, IDOR via URL manipulation — directly answered by this phase's Experiment 1 — and slow-query investigation at scale). **Per the spec's explicit instruction, do NOT provide answers until the user asks for them** — this is a deliberate pedagogical gate, not an oversight, and must be respected exactly as written.
+5. Nothing scope-wise has changed beyond what Phase 2.11 added — remaining work is entirely: the manual-verification checklist and the two final teaching deliverables. This is genuinely the last stretch of the project.
