@@ -8,7 +8,7 @@ Last Updated: 2026-09-29
 
 ## Remote
 
-Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Nineteen commits pushed as of the last confirmed push (`409f046`); Phase 2.12 (this checkpoint) is NOT YET COMMITTED as of this writing — see NEXT ACTION, and do not trust this line without re-checking `git log`/`git status`:
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Twenty commits pushed and confirmed (`git push` output showed `409f046..65f9fbe  main -> main`):
 - `84a7bd8` — root commit, covers Phases 1 + 2.1 (Authentication) + 2.2 (Projects CRUD)
 - `3c7cb50` — Phase 2.3 (Project Membership, transactions, activity logging)
 - `2d6eb19` — PROJECT-STATE.md correction after confirming the 2.3 push
@@ -28,6 +28,9 @@ Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Nineteen c
 - `4e5211f` — PROJECT-STATE.md correction after confirming the 2.10 push
 - `5e6c186` — Phase 2.11 (5 failure experiments, all reverted with verified-clean diffs)
 - `409f046` — PROJECT-STATE.md correction after confirming the 2.11 push
+- `65f9fbe` — Phase 2.12 (manual-verification checklist, walked through end-to-end, caught its own bug)
+
+Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
 
 ## Important: Dev Database Now Contains Real Seed Data
 
