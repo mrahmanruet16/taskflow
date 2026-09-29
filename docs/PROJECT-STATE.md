@@ -2,13 +2,13 @@
 
 ## Current Phase
 
-Phase: 2 — Implement the learning project (sub-phase 2.11: Failure experiments)
-Status: Sub-phases 2.1–2.11 COMPLETE and VERIFIED. All 5 spec-required failure experiments performed against real running code with real captured evidence, then cleanly reverted. Manual-verification checklist, final report/assessment NOT started.
+Phase: 2 — Implement the learning project (sub-phase 2.12: Manual-verification checklist)
+Status: Sub-phases 2.1–2.12 COMPLETE and VERIFIED. Consolidated manual-verification checklist written AND actually walked through end-to-end over real HTTP, catching and fixing one real checklist bug in the process. Only the final learning report and final backend assessment remain.
 Last Updated: 2026-09-29
 
 ## Remote
 
-Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Eighteen commits pushed and confirmed (`git push` output showed `4e5211f..5e6c186  main -> main`):
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Nineteen commits pushed as of the last confirmed push (`409f046`); Phase 2.12 (this checkpoint) is NOT YET COMMITTED as of this writing — see NEXT ACTION, and do not trust this line without re-checking `git log`/`git status`:
 - `84a7bd8` — root commit, covers Phases 1 + 2.1 (Authentication) + 2.2 (Projects CRUD)
 - `3c7cb50` — Phase 2.3 (Project Membership, transactions, activity logging)
 - `2d6eb19` — PROJECT-STATE.md correction after confirming the 2.3 push
@@ -27,8 +27,7 @@ Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Eighteen c
 - `3e42c69` — Phase 2.10 (database seeding + demo accounts)
 - `4e5211f` — PROJECT-STATE.md correction after confirming the 2.10 push
 - `5e6c186` — Phase 2.11 (5 failure experiments, all reverted with verified-clean diffs)
-
-Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
+- `409f046` — PROJECT-STATE.md correction after confirming the 2.11 push
 
 ## Important: Dev Database Now Contains Real Seed Data
 
@@ -68,7 +67,7 @@ Full detail and compatibility reasoning: `docs/architecture/version-matrix.md`.
 - [x] Dashboard (spec section 2, not separately numbered in this template) — sub-phase 2.6, complete: real aggregate COUNT() queries (Projects/Tasks/Completed/Pending/Overdue), verified as 5 flat queries regardless of task volume (measured via tinker, same rigor as the eloquent.md N+1 demonstration), verified correct over real HTTP including the completed-but-overdue-due-date edge case (must NOT count as overdue)
 - [x] Database Seeding + Demo Accounts (spec's explicit "Database Seeding"/"Factories" sections, not separately numbered in this template) — sub-phase 2.10, complete: 14 users/6 projects/60 tasks/120 comments/66 activity logs, exceeding all spec-required minimums (10+/5+/50+/100+); 4 named demo accounts (admin/manager/member/viewer @example.test, password "password") each a member of every seeded project with their intended role; verified over real HTTP (logged in as admin@example.test, dashboard counts cross-checked exactly against direct DB queries)
 - [ ] Phase 9 — Tests
-- [ ] Phase 10 — UI/browser verification
+- [x] Phase 10 — UI/browser verification (sub-phase 2.12, complete — `docs/testing/manual-verification.md` written AND actually walked through end-to-end over real HTTP as one continuous session, not just written from memory; caught and fixed a real bug in the checklist itself — an earlier draft conflated "not a project member at all" with "a member with a restricted role" for the Viewer cross-role check)
 - [x] Phase 11 — Failure experiments (sub-phase 2.11, complete — all 5 performed against real running code/data, real captured evidence, all cleanly reverted and verified: `git diff` empty after code-level experiments, schema byte-for-byte identical after the constraint experiment, full test suite green after each)
 - [x] Phase 12 — Documentation and ADR completion (ADRs: all 10 spec-required ADRs exist, sub-phase 2.8. Backend-concepts docs: all 14 spec-required docs now exist, sub-phase 2.9 — including `docs/architecture/request-lifecycle.md`, discovered missing and written this same sub-phase after finding 4 other docs falsely referenced it as "already documented." Remaining: `docs/architecture/system-overview.md`, `database-design.md`, `architecture-decisions.md`, `docs/database/database-design.md`, `docs/security/security-model.md`, `docs/testing/testing-strategy.md` are named in the spec's file-tree diagram but not the explicit required-list prose — treated as lower priority than the explicitly-named docs, not yet written)
 - [ ] Phase 13 — Final learning report
@@ -518,6 +517,32 @@ Files changed:
 - Added: `docs/testing/failure-experiments.md`
 - (Temporarily modified and cleanly reverted, not part of the final diff: `app/Http/Controllers/ProjectController.php` for Experiments 1/3/4, `app/Http/Requests/StoreProjectRequest.php` for Experiment 2, `laravel_learning_test`'s `tasks` table schema for Experiment 5)
 
+### Phase 2.12 — Manual-Verification Checklist
+Status: Complete, verified (the checklist was written AND then actually executed step-by-step over real HTTP as one continuous session — not written from memory and assumed correct)
+
+Completed:
+1. **Wrote `docs/testing/manual-verification.md`**: 7 parts, 28 numbered steps, covering Authentication, Dashboard, Projects, Tasks, Comments, cross-user Authorization, and Error Pages — extending well past the spec's own 14-step example to actually cover every major feature area built across Phases 2.1–2.11. Uses the seeded demo accounts (`admin`/`viewer@example.test`) so the checklist is immediately actionable without manual setup.
+2. **Then actually walked through nearly the entire checklist over real HTTP**, one continuous `curl` session (steps 2–27), rather than treating "I've verified each piece individually across prior phases" as sufficient — the goal was specifically to catch problems that only surface when steps run in *sequence* (shared state, session continuity, data created by an earlier step being consumed by a later one), which isolated per-phase verification structurally cannot catch.
+3. **Found and fixed a real bug in the checklist itself during this walkthrough** (not in the application code): step 24 originally instructed testing `viewer@example.test` against "any project," assuming Viewer would always be *a member with a restricted role*. Actually running it against the project created earlier in the SAME walkthrough (Part 3) — where only `admin`/`member@example.test` had been added, never `viewer` — produced a 403 on the entire page, not just a missing button. This is a different, earlier-in-the-pipeline authorization outcome ("not a member at all" vs. "a member whose role restricts this action") than the checklist intended to demonstrate. Diagnosed the actual membership state via a direct DB query, confirmed the theory, re-ran against a genuinely seeded project (where viewer IS a member) to get the intended 200-but-no-button result, then rewrote the checklist step itself to explicitly distinguish the two cases and explain why they differ — turning a documentation bug into an extra teaching point about the authorization layering, rather than just silently fixing the wording.
+4. **Cleaned up all walkthrough-created data afterward**: the project/task/comments/activity-logs created during the walkthrough were deleted, confirmed the seed data returned to the exact baseline (14/6/60/120/66) established in Phase 2.10 — the walkthrough data was explicitly throwaway verification data, unlike the seed data itself.
+
+Remaining for full Phase 2: only the final learning report (`docs/FINAL-LEARNING-REPORT.md`) and the final backend assessment. A handful of docs named only in the spec's file-tree diagram (not its required-doc prose list) remain optional/lower-priority.
+
+Verification:
+- Walked through Part 1 (Authentication): wrong-password error message confirmed rendered, correct login confirmed (302 → `/dashboard`), guest-middleware redirect confirmed (VERIFIED)
+- Walked through Part 2 (Dashboard): live numbers (6/60/13/35/12) matched the checklist's documented expected values exactly (VERIFIED)
+- Walked through Part 3 (Projects): create → appears in list → detail page shows activity → add member → duplicate-add correctly rejected with friendly message (VERIFIED)
+- Walked through Part 4 (Tasks): create → appears on project page → status-change activity message confirmed correctly formatted (HTML-escaped via Blade, as expected) → filtering confirmed both directions (VERIFIED)
+- Walked through Part 5 (Comments): posted, rendered correctly (VERIFIED)
+- Walked through Part 6 (Cross-user auth): logout confirmed session invalidated → login as viewer → **caught and fixed a checklist bug** (see above) → correct behavior confirmed on a genuinely-seeded project (200, no create-task button, 403 on direct edit-URL navigation) (VERIFIED)
+- Walked through Part 7 (Error pages): undefined route and nonexistent-model-ID both correctly produced the custom 404 page (VERIFIED)
+- `php artisan test` (full suite, after all walkthrough data cleaned up) → 61 passed, 154 assertions, unchanged (VERIFIED)
+- `./vendor/bin/pint --test` → passed (VERIFIED)
+- Seed data confirmed restored to exact baseline (14/6/60/120/66) after walkthrough cleanup (VERIFIED)
+
+Files changed:
+- Added: `docs/testing/manual-verification.md`
+
 ## Important Decisions
 
 1. **Laravel 13 over an older LTS** — chosen because it's the latest stable major and PHP 8.5.11 (the verified machine PHP) is only supported starting Laravel 13 (Laravel 12 tops out at PHP 8.5 too, actually — 12 supports 8.2–8.5 and 13 supports 8.3–8.5 — both would technically work). Went with 13 per the spec's explicit target ("targeting Laravel 13 if it is still the latest stable compatible release"), and it was still latest stable and compatible. No ADR needed yet for this — will be captured implicitly in the general architecture docs during Phase 2, or given its own ADR if a future session judges it warrants one.
@@ -554,6 +579,7 @@ Files changed:
 32. **`db:seed` is not idempotent by design** — re-running it inserts a second full copy rather than upserting; documented explicitly in `docs/SETUP.md` with the exact `DELETE FROM` sequence to clear first, rather than adding upsert logic to the seeder itself (unnecessary complexity for a one-time-per-fresh-database operation).
 33. **Experiment 5 (database constraint) run against the test database, not the dev database with real seed data** — a deliberate scope decision distinct from Experiments 1–4 (which used the seeded dev DB with careful cleanup), because this experiment mutates schema, not just rows, and the test DB's `RefreshDatabase` behavior provides an extra layer of self-healing the dev DB doesn't have.
 34. **Every failure experiment's revert verified with an artifact, not just re-reading the diff by eye**: `git diff` piped and confirmed empty (Experiments 1–4), `diff` of two captured schema snapshots confirmed identical (Experiment 5) — matching the same rigor established in the `APP_DEBUG` verification back in Phase 2.7.
+35. **The manual-verification checklist was executed, not just authored** — caught a real bug in the checklist's own step 24 (conflating "not a project member at all" with "a member with a restricted role") that a written-from-memory checklist would have shipped with. The distinction is now explicit in the checklist text as a teaching point, not silently corrected.
 
 ## Known Issues
 
@@ -758,14 +784,40 @@ Final sanity check after all 5 experiments:
   git status --short   → only docs/testing/ (the new writeup) untracked, zero app-code diff remaining
 ```
 
+```text
+--- Phase 2.12 (Manual-verification checklist) ---
+Walked through the actual checklist steps 2–27 over one continuous real HTTP session (admin@example.test, then viewer@example.test):
+  Step2 (dashboard, no login)                → 302 to /login
+  Step3 (wrong password)                     → 302, then "credentials do not match our records" confirmed on the redirected page
+  Step4 (correct login)                      → 302 to /dashboard
+  Step5 (guest middleware, already logged in)→ 302 away from /login
+  Step6 (dashboard numbers)                  → 6/60/13/35/12, exact match to documented expected values
+  Step9 (create project)                     → 302, project 24 created
+  Step10/11 (appears in list / detail page)  → confirmed, "created project" activity present, Members (1)
+  Step12/13 (add member / duplicate add)     → 302 both times; duplicate correctly showed "already a member of the project" on redirect
+  Step14/15/16 (create task / detail / appears on project page) → task 151 created, all confirmed
+  Step17 (status change)                     → activity message confirmed correct (HTML-escaped via Blade — grep initially failed on literal quotes vs &quot;, correctly identified as expected escaping, not a bug)
+  Step18 (task filtering)                    → confirmed both directions (present under matching status, absent under non-matching)
+  Step19/20 (comment add)                    → confirmed rendered correctly
+  Step22 (logout)                            → confirmed session invalidated (dashboard → 302 afterward)
+  Step23 (login as viewer)                   → 302 success
+  Step24 (viewer + walkthrough-created project, NOT seeded) → 403 — BUG FOUND: viewer was never added as a member of project 24 (only member@example.test was, in step 12) — checklist wording was wrong
+  Step24 REDONE (viewer + a genuinely seeded project, id 16) → 200, no Create Task button present — correct behavior, checklist text fixed accordingly
+  Step25 (viewer, direct edit URL on seeded project)         → 403, confirmed
+  Step26/27 (custom 404: undefined route / nonexistent model ID) → both confirmed 404 with custom page content
+Cleanup: DELETE walkthrough-created activity_logs/project/task rows → psql row counts confirmed restored to exact baseline (14/6/60/120/66)
+php artisan test (full suite, after cleanup)   → 61 passed, 154 assertions, unchanged
+./vendor/bin/pint --test   → passed
+git status --short   → only docs/testing/manual-verification.md untracked
+```
+
 ## Current Blocker
 
-None. Phase 2.11 is complete and verified, pending only the commit/push described in NEXT ACTION step 1. All 5 spec-required failure experiments performed and documented with real evidence.
+None. Phase 2.12 is complete and verified, pending only the commit/push described in NEXT ACTION step 1. Every functional area of the app has now been walked through in one continuous manual session, not just individually per-phase.
 
 ## NEXT ACTION
 
-1. **Immediate**: commit this Phase 2.11 work (`docs/testing/failure-experiments.md` — the only actual diff, since every experiment's code/schema change was reverted before this checkpoint) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing, confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed. Remember `laravel_learning_dev` still has real seed data that should NOT be wiped.
-2. Recommended next sub-phase: `docs/testing/manual-verification.md` — a consolidated checklist. Much of its content already exists, scattered across this file's own per-phase "Manual curl verification" notes throughout the Verification History section above — this is primarily an extraction/reorganization task (pull each phase's manual steps into one coherent walkthrough matching the spec's example format), not a from-scratch writing task.
-3. Then: the final learning report (`docs/FINAL-LEARNING-REPORT.md`) — the spec's required format covers every concept in a checklist (HTTP, REST, Routing, Middleware, Controllers, DI, Validation, Auth, Sessions, Authorization, Policies, Eloquent, Relationships, SQL, PostgreSQL, Indexes, Transactions, Pagination, Error Handling, Logging, Testing, Docker), each needing: where it appears in this project, relevant files, what to understand, one common mistake, one interview-style question. Nearly every concept already has a dedicated `docs/backend-concepts/*.md` file to draw from and cross-reference, rather than writing new explanations from scratch.
-4. Finally: the final backend assessment — ~20 questions covering request lifecycle, relationships, Eloquent, authorization, transactions, SQL, performance, security, testing, debugging, including scenario questions (the spec gives 4 examples: N+1 investigation, concurrent-edit race conditions, IDOR via URL manipulation — directly answered by this phase's Experiment 1 — and slow-query investigation at scale). **Per the spec's explicit instruction, do NOT provide answers until the user asks for them** — this is a deliberate pedagogical gate, not an oversight, and must be respected exactly as written.
-5. Nothing scope-wise has changed beyond what Phase 2.11 added — remaining work is entirely: the manual-verification checklist and the two final teaching deliverables. This is genuinely the last stretch of the project.
+1. **Immediate**: commit this Phase 2.12 work (`docs/testing/manual-verification.md` — the only diff, since all walkthrough data was cleaned up before this checkpoint) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing, confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed. Remember `laravel_learning_dev` still has real seed data that should NOT be wiped.
+2. Recommended next sub-phase: the final learning report (`docs/FINAL-LEARNING-REPORT.md`) — the spec's required format covers every concept in a checklist (HTTP, REST, Routing, Middleware, Controllers, DI, Validation, Auth, Sessions, Authorization, Policies, Eloquent, Relationships, SQL, PostgreSQL, Indexes, Transactions, Pagination, Error Handling, Logging, Testing, Docker), each needing: where it appears in this project, relevant files, what to understand, one common mistake, one interview-style question. Nearly every concept already has a dedicated `docs/backend-concepts/*.md` file to draw from and cross-reference — this is substantially a synthesis/cross-referencing task, not writing new explanations from scratch.
+3. Then, finally: the final backend assessment — ~20 questions covering request lifecycle, relationships, Eloquent, authorization, transactions, SQL, performance, security, testing, debugging, including scenario questions (the spec gives 4 examples: N+1 investigation, concurrent-edit race conditions, IDOR via URL manipulation — directly answered by this project's Experiment 1 — and slow-query investigation at scale). **Per the spec's explicit instruction, do NOT provide answers until the user asks for them** — this is a deliberate pedagogical gate, not an oversight, and must be respected exactly as written.
+4. Nothing scope-wise has changed beyond what Phase 2.12 added — remaining work is entirely the two final teaching deliverables. This is genuinely the last stretch of the project — after these two, every functional requirement, every documentation deliverable, and every teaching deliverable the spec names will be complete.
