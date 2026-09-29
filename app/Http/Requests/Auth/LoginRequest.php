@@ -5,6 +5,7 @@ namespace App\Http\Requests\Auth;
 use Illuminate\Auth\Events\Lockout;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
@@ -39,6 +40,19 @@ class LoginRequest extends FormRequest
 
         if (! Auth::attempt($this->only('email', 'password'), $this->boolean('remember'))) {
             RateLimiter::hit($this->throttleKey());
+
+            // Email (not password — never the password) is worth logging
+            // here specifically: a pattern of failed attempts against the
+            // same email, or against many different emails from the same
+            // IP, is exactly what security monitoring looks for. This is
+            // the one log call in this app that deliberately includes a
+            // value close to PII — justified because it's the log's whole
+            // purpose (detecting credential-stuffing/brute-force patterns),
+            // not incidental.
+            Log::warning('Failed login attempt', [
+                'email' => $this->string('email')->toString(),
+                'ip' => $this->ip(),
+            ]);
 
             throw ValidationException::withMessages([
                 'email' => __('auth.failed'),

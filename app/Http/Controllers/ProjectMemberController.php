@@ -11,6 +11,7 @@ use Illuminate\Contracts\View\View;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 
 class ProjectMemberController extends Controller
 {
@@ -61,6 +62,17 @@ class ProjectMemberController extends Controller
                 ->route('projects.members.index', $project)
                 ->withErrors(['member' => 'Cannot remove the last owner of a project.']);
         }
+
+        // Removing a member is a security-relevant, access-revoking
+        // action worth an application log entry (who removed whom, from
+        // which project) distinct from the ActivityLog row below — the
+        // latter is user-facing project history, this is for anyone
+        // auditing access changes at the system level.
+        Log::info('Project member removed', [
+            'actor_id' => Auth::id(),
+            'removed_user_id' => $user->id,
+            'project_id' => $project->id,
+        ]);
 
         $project->members()->detach($user->id);
 

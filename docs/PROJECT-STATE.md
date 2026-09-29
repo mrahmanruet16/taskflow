@@ -2,13 +2,13 @@
 
 ## Current Phase
 
-Phase: 2 — Implement the learning project (sub-phase 2.8: Foundational ADRs)
-Status: Sub-phases 2.1–2.8 COMPLETE and VERIFIED. All 10 spec-required ADRs now exist (001–010). Remaining backend-concepts docs, seeders at volume, failure experiments, final report/assessment NOT started.
-Last Updated: 2026-09-28
+Phase: 2 — Implement the learning project (sub-phase 2.9: Remaining backend-concepts docs + real logging)
+Status: Sub-phases 2.1–2.9 COMPLETE and VERIFIED. All 14 spec-required backend-concepts docs now exist, all 10 ADRs exist, and the app now has real `Log::` calls (previously zero existed despite the spec requiring "useful Laravel logging" as a functional requirement, not just documentation). Seeders at volume, failure experiments, final report/assessment NOT started.
+Last Updated: 2026-09-29
 
 ## Remote
 
-Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Twelve commits pushed and confirmed (`git push` output showed `fa43d79..c68bcd4  main -> main`):
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Thirteen commits pushed as of the last confirmed push (`c68bcd4`); Phase 2.9 (this checkpoint) is NOT YET COMMITTED as of this writing — see NEXT ACTION, and do not trust this line without re-checking `git log`/`git status`:
 - `84a7bd8` — root commit, covers Phases 1 + 2.1 (Authentication) + 2.2 (Projects CRUD)
 - `3c7cb50` — Phase 2.3 (Project Membership, transactions, activity logging)
 - `2d6eb19` — PROJECT-STATE.md correction after confirming the 2.3 push
@@ -21,6 +21,7 @@ Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Twelve com
 - `53268e4` — Phase 2.7 (error pages, APP_DEBUG verification)
 - `fa43d79` — PROJECT-STATE.md correction after confirming the 2.7 push (also fixed a stray duplicate line)
 - `c68bcd4` — Phase 2.8 (foundational ADRs 001–004, 007)
+- (Phase 2.8's own PROJECT-STATE.md correction commit `0e5a0d6` also already pushed, per the previous session's final check — omitted from re-listing here since nothing about it changed this session)
 
 Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
 
@@ -57,7 +58,7 @@ Full detail and compatibility reasoning: `docs/architecture/version-matrix.md`.
 - [ ] Phase 9 — Tests
 - [ ] Phase 10 — UI/browser verification
 - [ ] Phase 11 — Failure experiments
-- [~] Phase 12 — Documentation and ADR completion (ADRs: all 10 spec-required ADRs now exist, sub-phase 2.8, complete — 001 monolith, 002 PostgreSQL, 003 Blade, 004 Eloquent/no-repository, 005 session auth, 006 policy authorization, 007 no-service-layer, 008 transactions, 009 pagination, 010 testing strategy. Backend-concepts docs: 6 of 14 written — database-indexes.md, transactions.md (standalone), pagination.md, logging.md, http-and-rest.md, routing.md, middleware.md, controllers.md still remaining)
+- [x] Phase 12 — Documentation and ADR completion (ADRs: all 10 spec-required ADRs exist, sub-phase 2.8. Backend-concepts docs: all 14 spec-required docs now exist, sub-phase 2.9 — including `docs/architecture/request-lifecycle.md`, discovered missing and written this same sub-phase after finding 4 other docs falsely referenced it as "already documented." Remaining: `docs/architecture/system-overview.md`, `database-design.md`, `architecture-decisions.md`, `docs/database/database-design.md`, `docs/security/security-model.md`, `docs/testing/testing-strategy.md` are named in the spec's file-tree diagram but not the explicit required-list prose — treated as lower priority than the explicitly-named docs, not yet written)
 - [ ] Phase 13 — Final learning report
 - [ ] Phase 14 — Final backend assessment
 
@@ -416,6 +417,36 @@ Files changed:
 - Added: `docs/architecture/adr/004-eloquent-orm.md`
 - Added: `docs/architecture/adr/007-service-layer.md`
 
+### Phase 2.9 — Remaining backend-concepts docs + real Laravel logging
+Status: Complete, verified (real log entries captured from the actual test suite run, not fabricated; full regression test after code changes)
+
+Completed:
+1. **Discovered a real gap while auditing before writing `logging.md`**: the spec requires "Implement useful Laravel logging" as a functional requirement (not just documentation), and grep confirmed **zero** `Log::` facade calls existed anywhere in `app/` — only the domain-level `ActivityLog` model (user-facing audit trail) existed. Rather than write a doc describing logging that wasn't actually implemented, added 4 real `Log::` call sites first: `ProjectController::destroy()` (`Log::warning`, since project deletion cascades destructively through tasks/comments/memberships), `TaskController::destroy()` (`Log::info`), `ProjectMemberController::destroy()` (`Log::info`, access-revocation), `AuthenticatedSessionController::store()`/`destroy()` (`Log::info`, login/logout) and `LoginRequest::authenticate()`'s failure path (`Log::warning`, failed login — deliberately includes the attempted email + IP for brute-force pattern detection, the one log line in the app that includes anything PII-adjacent, justified because detecting that pattern IS the log's purpose — never includes the password).
+2. **Verified the new logging by reading real captured log lines**, not by assuming the code was correct: ran the full test suite (which naturally exercises all 4 call sites via `AuthenticationTest`/`ProjectTest`/`ProjectMemberTest`/`TaskTest`) and grepped `storage/logs/laravel.log` afterward — confirmed real entries for all 4 events with correct structured context (`user_id`, `project_id`, etc.) and zero leaked passwords/tokens.
+3. **Wrote `docs/backend-concepts/logging.md`** describing exactly this real implementation — including a concrete side-by-side comparison of the SAME event (project deletion) showing why it gets a `Log::warning()` but deliberately NOT an `ActivityLog::create()` (logging an activity entry pointing at a subject about to be deleted would leave a permanently-broken reference), which doubles as the clearest possible illustration of the spec's required "Application logs vs. Audit logs" distinction.
+4. **Wrote the 7 remaining backend-concepts docs**: `database-indexes.md` (collects the "why this index" reasoning already scattered across every migration's inline comments into one place, including the story of catching and removing a redundant duplicate index in Phase 2.3), `transactions.md` (the standalone concept doc, distinct from ADR 008's specific decision record — explains WHY only one operation in this app uses a transaction while several similar-looking two-write operations deliberately don't), `pagination.md` (explains the actual `LIMIT`/`OFFSET` SQL `paginate()` generates, plus the offset-vs-cursor trade-off from ADR 009), `http-and-rest.md`, `routing.md`, `middleware.md`, `controllers.md`.
+5. **Caught and fixed a real factual error while writing `http-and-rest.md`**: initially wrote that a "MethodField middleware" handles `_method` spoofing for `PUT`/`DELETE` forms — a plausible-sounding but incorrect guess. Verified against actual Laravel/Symfony source (`grep`-ing `vendor/`) before publishing, found the real mechanism is Symfony's `Request::enableHttpMethodParameterOverride()`, called by Laravel's HTTP Kernel — corrected before this became a false claim in a doc meant to teach accurate mechanics, not "sounds right."
+6. **Discovered and fixed a bigger, pre-existing accuracy problem**: while writing `controllers.md`, referenced `docs/architecture/request-lifecycle.md` as an existing doc (echoing 3 other files — `003-blade-server-rendered-ui.md`, `004-eloquent-orm.md`, `007-service-layer.md` — that had ALL previously referenced it the same way, as if it had been written back in Phase 1 per the spec's own requirement). Ran a repo-wide scan (`grep -rhoE 'docs/[a-zA-Z0-9_/.-]+\.md' docs/` cross-checked against actual files on disk) and confirmed **the file never actually existed** — a real instance of the exact failure mode the project's anti-hallucination rules exist to prevent (claiming something is complete/documented without verification). Fixed by actually writing `docs/architecture/request-lifecycle.md` — a full trace of a real "Create Task" request through all 15 stages of the spec's required flow diagram, using this app's actual code (real route, real Policy check, real Eloquent call, real redirect) rather than a generic/hypothetical example — which retroactively makes all 4 prior references true rather than requiring each one to be individually rewritten.
+7. **Re-ran the same missing-reference scan after the fix**: confirmed only 3 references remain unresolved, and verified each is legitimately forward-looking prose ("added later," "planned"), not a false present-tense claim — `docs/backend-concepts/testing-strategy.md`, `docs/testing/manual-verification.md`, `docs/FINAL-LEARNING-REPORT.md`, all explicitly future work already tracked in this file's own NEXT ACTION notes.
+
+Remaining for full Phase 2: a few docs named only in the spec's file-tree diagram, not its explicit required-doc prose list (`docs/architecture/system-overview.md`/`database-design.md`/`architecture-decisions.md`, `docs/database/database-design.md`, `docs/security/security-model.md`, `docs/testing/testing-strategy.md`) — judged lower priority than the explicitly-named 14 backend-concepts docs + 10 ADRs, which are now complete; a real `DatabaseSeeder` at volume with named demo accounts; the 5 numbered failure experiments; `docs/testing/manual-verification.md`; final learning report; final backend assessment.
+
+Verification:
+- `php artisan test` (full suite, after adding 4 real Log:: call sites) → 61 passed, 154 assertions, unchanged (VERIFIED — confirms the logging additions introduced no regressions)
+- `./vendor/bin/pint --test` → passed (VERIFIED)
+- `grep -E "User logged (in|out)|Failed login|Project deleted|Task deleted|Project member removed" storage/logs/laravel.log` → real captured entries for all 4 new log call sites, correct structured context, zero passwords/tokens present (VERIFIED)
+- `grep -rhoE 'docs/[a-zA-Z0-9_/.-]+\.md' docs/` cross-checked against files on disk, before and after writing `request-lifecycle.md` → confirmed the gap, then confirmed the fix, then confirmed only legitimately-forward-looking references remain (VERIFIED)
+- `ls docs/backend-concepts/` → confirmed all 14 spec-required files present (VERIFIED)
+
+Files changed:
+- Modified: `app/Http/Controllers/ProjectController.php` (added `Log::warning` on project deletion)
+- Modified: `app/Http/Controllers/TaskController.php` (added `Log::info` on task deletion)
+- Modified: `app/Http/Controllers/ProjectMemberController.php` (added `Log::info` on member removal)
+- Modified: `app/Http/Controllers/Auth/AuthenticatedSessionController.php` (added `Log::info` on login/logout)
+- Modified: `app/Http/Requests/Auth/LoginRequest.php` (added `Log::warning` on failed login)
+- Added: `docs/architecture/request-lifecycle.md`
+- Added: `docs/backend-concepts/logging.md`, `database-indexes.md`, `transactions.md`, `pagination.md`, `http-and-rest.md`, `routing.md`, `middleware.md`, `controllers.md`
+
 ## Important Decisions
 
 1. **Laravel 13 over an older LTS** — chosen because it's the latest stable major and PHP 8.5.11 (the verified machine PHP) is only supported starting Laravel 13 (Laravel 12 tops out at PHP 8.5 too, actually — 12 supports 8.2–8.5 and 13 supports 8.3–8.5 — both would technically work). Went with 13 per the spec's explicit target ("targeting Laravel 13 if it is still the latest stable compatible release"), and it was still latest stable and compatible. No ADR needed yet for this — will be captured implicitly in the general architecture docs during Phase 2, or given its own ADR if a future session judges it warrants one.
@@ -446,6 +477,10 @@ Files changed:
 26. **`APP_DEBUG=false` behavior verified empirically over real HTTP in both directions (true and false), not just asserted in one automated test** — manually triggered a real exception through `php artisan serve` with both settings, confirmed the debug page leaks details 6 times when `true` and the custom page leaks 0 times when `false`. Temporary route and `.env` change both cleanly reverted afterward, confirmed via `git diff`.
 27. **`ProjectStatus`/`TaskStatus`/`TaskPriority`/`ProjectRole` stored as plain `VARCHAR` with PHP-enum casting, not PostgreSQL native `ENUM` types** — a sub-decision made implicitly back in Phase 2.2 but only formally documented now (ADR 002): adding a new PHP enum case is less disruptive than a Postgres `ALTER TYPE` migration.
 28. **No service layer (`app/Services/`) anywhere in this app** — business logic lives directly in controllers; the multi-step `DB::transaction()` in `ProjectController::store()` is the concrete example. Documented in ADR 007 with an explicit trigger for reconsidering: the moment any business operation needs a second real caller beyond its current single controller action.
+29. **Added 4 real `Log::` call sites (project deletion, task deletion, member removal, login/logout/failed-login)** — discovered zero existed anywhere in the app despite the spec requiring "useful Laravel logging" as a functional requirement; added rather than just documenting the absence. See `docs/backend-concepts/logging.md`.
+30. **Project deletion gets a system log (`Log::warning`) but deliberately NOT an `ActivityLog` row, unlike every other destructive action** — logging an activity entry pointing at a subject about to be deleted would leave a permanently orphaned reference with nothing left to view.
+
+## Known Issues
 
 - ~~Issue: `phpunit.xml` uses in-memory SQLite for tests, not PostgreSQL.~~ **RESOLVED in Phase 2.1** — see ADR 010. `phpunit.xml` now points at `laravel_learning_test` (PostgreSQL), credentials inherited from `.env` (not duplicated in the committed file).
 
@@ -594,22 +629,26 @@ Manual HTTP verification via php artisan serve, real APP_DEBUG toggle:
 php artisan test (full suite, after writing 5 ADR markdown files, zero code touched)   → 61 passed, 154 assertions, unchanged
 ./vendor/bin/pint --test   → passed
 ls docs/architecture/adr/ | sort   → confirmed exactly 10 files (001–010), matching spec's required list
+
+--- Phase 2.9 (remaining backend-concepts docs + real logging) ---
+grep -rn "Log::" app/ --include="*.php" (BEFORE adding logging)   → zero results, confirming the gap
+php artisan test (full suite, after adding 4 Log:: call sites)   → 61 passed, 154 assertions, unchanged
+./vendor/bin/pint --test   → passed
+grep -E "User logged (in|out)|Failed login|Project deleted|Task deleted|Project member removed" storage/logs/laravel.log   → real entries for all 4 new call sites, correct context, no leaked credentials
+grep -rhoE 'docs/[a-zA-Z0-9_/.-]+\.md' docs/ cross-checked against disk (BEFORE writing request-lifecycle.md)   → found docs/architecture/request-lifecycle.md referenced by 4 files but not existing on disk
+(wrote docs/architecture/request-lifecycle.md)
+same scan re-run (AFTER)   → only 3 references remain, all confirmed legitimately forward-looking ("added later"/"planned"), not false present-tense claims
+ls docs/backend-concepts/ | sort   → confirmed all 14 spec-required files present
 ```
 
 ## Current Blocker
 
-None. Phase 2.8 (foundational ADRs) is complete and verified, pending only the commit/push described in NEXT ACTION step 1. All 10 spec-required ADRs now exist.
+None. Phase 2.9 is complete and verified, pending only the commit/push described in NEXT ACTION step 1. All 10 ADRs and all 14 backend-concepts docs now exist; the app has real Laravel logging where previously it had none.
 
 ## NEXT ACTION
 
-1. **Immediate**: commit this Phase 2.8 work (5 new ADR files — everything listed under "Files changed" in the Phase 2.8 section above) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing (low risk this time — pure prose files, but stay consistent), confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed.
-2. Recommended next sub-phase: **remaining backend-concepts docs** (8 of 14 files from the spec's required `docs/backend-concepts/` list still unwritten):
-   - `database-indexes.md` — could largely be assembled from the "why this index" reasoning already written inline in every migration's comments (`projects`, `tasks`, `project_user`, `activity_logs`, `comments`) — this doc's job is to collect and explain that reasoning as a standalone concept, not rediscover it.
-   - `transactions.md` — a standalone concept doc distinct from ADR 008 (which documents the *decision*; this doc should teach the *concept* generally — atomicity/rollback/consistency — using the same `ProjectController::store()` example ADR 008 already covers).
-   - `pagination.md` — teach offset vs. cursor pagination as a concept; ADR 009 already has the decision reasoning, this doc explains the mechanism (what SQL `paginate()` generates — `LIMIT`/`OFFSET`).
-   - `logging.md` — not yet covered anywhere; needs actual content on Laravel's `Log` facade, log channels/levels, and the explicit "never log passwords/tokens/PII" rule from the spec — check whether this app currently does any deliberate logging beyond the framework defaults (worth auditing before writing this doc, since the doc should describe what's ACTUALLY implemented, not aspirational content).
-   - `http-and-rest.md`, `routing.md`, `middleware.md`, `controllers.md` — foundational HTTP/Laravel concept docs, not yet written; could each point to concrete examples already built (e.g. `routing.md` → the actual `routes/web.php` groupings; `middleware.md` → the `auth`/`guest` groups and what happens without them, tying into the planned Failure Experiment 1).
-3. Then: a real `DatabaseSeeder` invoking all four factories (User/Project/Task/Comment) at the spec's required volume (10+ users, 5+ projects, 50+ tasks, 100+ comments), plus the spec's named demo accounts (admin@example.test / manager@example.test / member@example.test / viewer@example.test) with documented demo passwords — none of this exists yet, `DatabaseSeeder.php` is still the Laravel-default empty stub.
-4. Then: the 5 numbered failure experiments from the spec (deliberately break auth/validation/transactions/N+1/DB-constraints and document what happens) — most of the underlying mechanics to break are already built and individually testable from prior phases; this phase is about deliberately breaking them ON PURPOSE and writing up the observed failure, not building new functionality. Several natural hooks already exist: removing the `auth` middleware (routes/web.php comments already reference this as "Failure Experiment 1"), removing the `DB::transaction()` in `ProjectController::store()` (ADR 008 already references this as "Failure Experiment 3"), removing eager loading from `ProjectController::index()`/`show()` (ties to the N+1 measurement already done in `docs/backend-concepts/eloquent.md`).
-5. Then: `docs/testing/manual-verification.md` (a consolidated checklist — much of its content already exists scattered across this file's manual-verification notes per phase and could be extracted/reorganized rather than written from scratch), final learning report (`docs/FINAL-LEARNING-REPORT.md`), final backend assessment (~20 questions, spec explicitly says not to provide answers until asked).
-6. Nothing scope-wise has changed beyond what Phase 2.8 added — remaining work is entirely: 8 backend-concepts docs, seeders/demo accounts, failure experiments, and the two final teaching deliverables.
+1. **Immediate**: commit this Phase 2.9 work (5 app-code files with new `Log::` calls + 8 new docs — everything listed under "Files changed" in the Phase 2.9 section above) and `git push origin main`. Same review discipline as every prior commit: `git add -n .` dry run first, `git diff --cached | grep -i password` before committing (this phase's app-code diff explicitly discusses NOT logging passwords in comments — confirm those are comments, not actual logged values, before committing), confirm `git push` output actually shows success. **A future session must re-verify via `git log`/`git status`** rather than trusting this file's claim if time has passed.
+2. Recommended next sub-phase: a real `DatabaseSeeder` invoking all four factories (User/Project/Task/Comment) at the spec's required volume (10+ users, 5+ projects, 50+ tasks, 100+ comments), plus the spec's named demo accounts (admin@example.test / manager@example.test / member@example.test / viewer@example.test) with documented demo passwords — none of this exists yet, `DatabaseSeeder.php` is still the Laravel-default empty stub. This is the natural next piece since the failure experiments and final manual-verification checklist will both be easier to demonstrate against a realistically-populated database rather than the empty one every phase's manual verification has carefully cleaned up after itself.
+3. Then: the 5 numbered failure experiments from the spec (deliberately break auth/validation/transactions/N+1/DB-constraints and document what happens) — most of the underlying mechanics to break are already built and individually testable from prior phases; this phase is about deliberately breaking them ON PURPOSE and writing up the observed failure, not building new functionality. Several natural hooks already exist: removing the `auth` middleware (`routes/web.php` comments already reference this as "Failure Experiment 1"), removing the `DB::transaction()` in `ProjectController::store()` (ADR 008 already references this as "Failure Experiment 3"), removing eager loading from `ProjectController::index()`/`show()` (ties to the N+1 measurement already done in `docs/backend-concepts/eloquent.md`).
+4. Then: `docs/testing/manual-verification.md` (a consolidated checklist — much of its content already exists scattered across this file's manual-verification notes per phase and could be extracted/reorganized rather than written from scratch), final learning report (`docs/FINAL-LEARNING-REPORT.md`), final backend assessment (~20 questions, spec explicitly says not to provide answers until asked).
+5. Nothing scope-wise has changed beyond what Phase 2.9 added — remaining work is entirely: seeders/demo accounts, failure experiments, and the two final teaching deliverables. A handful of docs named only in the spec's file-tree diagram (not its required-doc prose list) remain optional/lower-priority, noted in the Overall Progress checklist above.

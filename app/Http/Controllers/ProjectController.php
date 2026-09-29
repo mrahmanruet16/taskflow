@@ -12,6 +12,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 
 class ProjectController extends Controller
 {
@@ -117,6 +118,20 @@ class ProjectController extends Controller
     public function destroy(Project $project): RedirectResponse
     {
         Gate::authorize('delete', $project);
+
+        // System/application log (storage/logs/laravel.log), NOT the same
+        // thing as the ActivityLog row above — this is for developers/ops
+        // monitoring the running application, not for end users browsing
+        // a project's history. 'warning' level (not 'info'): deletion is
+        // destructive and cascades to every task/comment/membership row
+        // via the migrations' cascadeOnDelete() — worth a human noticing
+        // in aggregate log monitoring, unlike routine reads or updates.
+        // See docs/backend-concepts/logging.md for the full distinction.
+        Log::warning('Project deleted', [
+            'user_id' => Auth::id(),
+            'project_id' => $project->id,
+            'project_name' => $project->name,
+        ]);
 
         $project->delete();
 

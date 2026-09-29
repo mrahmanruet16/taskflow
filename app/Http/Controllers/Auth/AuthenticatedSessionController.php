@@ -7,6 +7,7 @@ use App\Http\Requests\Auth\LoginRequest;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Illuminate\View\View;
 
 class AuthenticatedSessionController extends Controller
@@ -27,11 +28,19 @@ class AuthenticatedSessionController extends Controller
 
         $request->session()->regenerate();
 
+        // user_id only — never log the password, and email is deliberately
+        // omitted here too (unlike the failed-attempt log in LoginRequest,
+        // where the attempted email is useful for spotting a targeted
+        // brute-force pattern before the account is identified).
+        Log::info('User logged in', ['user_id' => Auth::id()]);
+
         return redirect()->intended(route('dashboard', absolute: false));
     }
 
     public function destroy(Request $request): RedirectResponse
     {
+        Log::info('User logged out', ['user_id' => Auth::id()]);
+
         Auth::guard('web')->logout();
 
         // Invalidating the session (not just logging out the guard) removes

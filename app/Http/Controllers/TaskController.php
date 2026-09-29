@@ -14,6 +14,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Log;
 
 class TaskController extends Controller
 {
@@ -174,6 +175,13 @@ class TaskController extends Controller
 
         $projectId = $task->project_id;
         $title = $task->title;
+
+        Log::info('Task deleted', [
+            'user_id' => Auth::id(),
+            'task_id' => $task->id,
+            'project_id' => $projectId,
+        ]);
+
         $task->delete();
 
         ActivityLog::create([
