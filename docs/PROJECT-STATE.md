@@ -8,7 +8,7 @@ Last Updated: 2026-09-29
 
 ## Remote
 
-Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Thirteen commits pushed as of the last confirmed push (`c68bcd4`); Phase 2.9 (this checkpoint) is NOT YET COMMITTED as of this writing — see NEXT ACTION, and do not trust this line without re-checking `git log`/`git status`:
+Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Fourteen commits pushed and confirmed (`git push` output showed `0e5a0d6..3b1b775  main -> main`):
 - `84a7bd8` — root commit, covers Phases 1 + 2.1 (Authentication) + 2.2 (Projects CRUD)
 - `3c7cb50` — Phase 2.3 (Project Membership, transactions, activity logging)
 - `2d6eb19` — PROJECT-STATE.md correction after confirming the 2.3 push
@@ -21,7 +21,10 @@ Pushed to `git@github.com:mrahmanruet16/taskflow.git`, branch `main`. Thirteen c
 - `53268e4` — Phase 2.7 (error pages, APP_DEBUG verification)
 - `fa43d79` — PROJECT-STATE.md correction after confirming the 2.7 push (also fixed a stray duplicate line)
 - `c68bcd4` — Phase 2.8 (foundational ADRs 001–004, 007)
-- (Phase 2.8's own PROJECT-STATE.md correction commit `0e5a0d6` also already pushed, per the previous session's final check — omitted from re-listing here since nothing about it changed this session)
+- `0e5a0d6` — PROJECT-STATE.md correction after confirming the 2.8 push
+- `3b1b775` — Phase 2.9 (real logging + remaining 8 backend-concepts docs, including the request-lifecycle.md fix)
+
+Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
 
 Working tree clean as of this checkpoint. A future session should still re-verify with `git log`/`git status` rather than trusting this note if significant time has passed.
 
